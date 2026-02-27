@@ -32,14 +32,19 @@ def safe_float(val, default=0.0):
     """
     안전한 실수 변환.
     키움 API의 퍼센트(%) 기호 및 플러스(+) 기호 예외 처리 추가.
+    NaN/Inf 결과도 default로 대체하여 손익 계산 오염 방지. [검수Fix]
     """
+    import math
     try:
         if isinstance(val, str):
             val = val.replace(',', '').replace('+', '').replace('%', '').replace(' ', '').strip()
             if not val or val == '-':
                 return default
-            return float(val)
-        return float(val)
+        result = float(val)
+        # NaN 또는 무한대는 계산식을 오염시키므로 default로 대체
+        if math.isnan(result) or math.isinf(result):
+            return default
+        return result
     except (ValueError, TypeError) as e:
         logger.debug(f"safe_float 변환 실패: {val!r} → default={default} ({e})")
         return default
