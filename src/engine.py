@@ -99,6 +99,7 @@ class TradingEngine(QMainWindow):
         self._reconnect_timer = QTimer(self)
         self._reconnect_timer.setSingleShot(True)
         self._reconnect_timer.timeout.connect(self._do_reconnect)
+        self._pre_market_reconnect_date = None  # 8:50 강제 재연결 하루 1회 플래그
         
         self.account = ""
         self.account_password = ""  # [Fix #2] 비밀번호 저장용
@@ -373,6 +374,25 @@ class TradingEngine(QMainWindow):
         }
         self.ipc_client.send_state(state)
         self.db.write_engine_state(state)
+
+        # ── 8:50 AM 장 시작 전 최종 재연결 안전망 ──────────────────────────
+        # 키움 서버 점검(08:00~08:20) 후 재연결이 실패한 상태로 남아 있을 경우를 대비,
+        # 8시 50분에 한 번 더 강제 재연결을 시도해 9시 장 시작에 대비합니다.
+        try:
+            now_dt = datetime.datetime.now()
+            today = datetime.date.today().isoformat()
+            if (now_dt.hour == 8 and now_dt.minute == 50
+                    and self._pre_market_reconnect_date != today):
+                self._pre_market_reconnect_date = today  # 하루 1회만 실행
+                if self.current_status in ("LOGIN_FAILED", "LOGGING_IN"):
+                    logger.info("🔔 [엔진] 08:50 장 시작 전 강제 재연결 시도 (점검 후 안전망)")
+                    self.notifier.discord("🔔 [08:50 안전망] 키움 미연결 상태 감지 → 강제 재연결 시도합니다.")
+                    self._reconnect_timer.stop()   # 진행 중인 백오프 타이머 취소
+                    self._do_reconnect()
+                else:
+                    logger.info(f"✅ [엔진] 08:50 점검: 이미 정상 연결 상태 ({self.current_status})")
+        except Exception as e:
+            logger.error(f"❌ [8:50 재연결] 오류: {e}")
 
         # [Fix #1] 장 마감 자동 리포트 & 종료 — shutdown_opt 무관하게 항상 리포트 먼저 전송
         try:
