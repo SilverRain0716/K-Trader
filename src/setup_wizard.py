@@ -284,12 +284,155 @@ class DiscordPage(QWizardPage):
             self.test_result.setStyleSheet("color: #ff1744;")
 
 
-class CalendarApiPage(QWizardPage):
-    """페이지 4: 공공데이터 API 키 (선택사항)."""
+def _detect_smtp(email: str) -> tuple:
+    """이메일 도메인으로 SMTP 서버/포트 자동 감지."""
+    domain = email.split("@")[-1].lower() if "@" in email else ""
+    smtp_map = {
+        "gmail.com":    ("smtp.gmail.com",  465),
+        "naver.com":    ("smtp.naver.com",  465),
+        "daum.net":     ("smtp.daum.net",   465),
+        "hanmail.net":  ("smtp.daum.net",   465),
+        "kakao.com":    ("smtp.kakao.com",  465),
+        "nate.com":     ("smtp.nate.com",   465),
+        "outlook.com":  ("smtp.office365.com", 587),
+        "hotmail.com":  ("smtp.office365.com", 587),
+        "live.com":     ("smtp.office365.com", 587),
+        "yahoo.com":    ("smtp.mail.yahoo.com", 465),
+    }
+    return smtp_map.get(domain, ("smtp." + domain, 465))
+
+
+class EmailPage(QWizardPage):
+    """페이지 4: 이메일 알림 설정 (선택사항)."""
 
     def __init__(self):
         super().__init__()
-        self.setTitle("4단계: 공휴일 API 키 (선택사항)")
+        self.setTitle("4단계: 이메일 알림 설정 (선택사항)")
+        self.setSubTitle("이메일 주소를 입력하면 매매 알림을 이메일로 받을 수 있습니다.")
+
+        layout = QVBoxLayout()
+        layout.setSpacing(12)
+
+        # 안내
+        info = QGroupBox("📖 이메일 알림 설정 안내")
+        info_layout = QVBoxLayout()
+        info_text = QLabel(
+            "입력한 이메일 주소로 알림을 보내고 받습니다 (발신 = 수신).\n\n"
+            "Gmail 사용 시: Google 계정 → 보안 → 앱 비밀번호 생성 후 입력하세요.\n"
+            "  (일반 Gmail 비밀번호는 사용 불가, 앱 비밀번호 필수)\n\n"
+            "네이버 사용 시: 네이버 메일 → 환경설정 → POP3/SMTP 사용 설정 후\n"
+            "  네이버 로그인 비밀번호를 입력하세요.\n\n"
+            "지원 이메일: Gmail, 네이버, 다음, 카카오, 네이트, Outlook, Yahoo"
+        )
+        info_text.setWordWrap(True)
+        info_layout.addWidget(info_text)
+        info.setLayout(info_layout)
+        layout.addWidget(info)
+
+        # 입력 폼
+        form_layout = QGridLayout()
+        form_layout.setHorizontalSpacing(10)
+        form_layout.setVerticalSpacing(8)
+
+        form_layout.addWidget(QLabel("이메일 주소:"), 0, 0)
+        self.email_input = QLineEdit()
+        self.email_input.setPlaceholderText("example@gmail.com (발신/수신 동일)")
+        self.email_input.setFixedWidth(300)
+        self.email_input.textChanged.connect(self._on_email_changed)
+        form_layout.addWidget(self.email_input, 0, 1)
+
+        form_layout.addWidget(QLabel("앱 비밀번호:"), 1, 0)
+        self.pw_input = QLineEdit()
+        self.pw_input.setEchoMode(QLineEdit.Password)
+        self.pw_input.setPlaceholderText("앱 비밀번호 (일반 비밀번호 X)")
+        self.pw_input.setFixedWidth(300)
+        form_layout.addWidget(self.pw_input, 1, 1)
+
+        self.smtp_label = QLabel("")
+        self.smtp_label.setStyleSheet("color: #888; font-size: 11px;")
+        form_layout.addWidget(self.smtp_label, 2, 1)
+
+        layout.addLayout(form_layout)
+
+        # 테스트 버튼
+        test_layout = QHBoxLayout()
+        self.btn_test = QPushButton("📧 테스트 메일 보내기")
+        self.btn_test.clicked.connect(self._test_email)
+        self.test_result = QLabel("")
+        test_layout.addWidget(self.btn_test)
+        test_layout.addWidget(self.test_result, stretch=1)
+        layout.addLayout(test_layout)
+
+        skip = QLabel("※ 건너뛰셔도 됩니다. 나중에 config/secrets.json에서 수정할 수 있습니다.")
+        skip.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(skip)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+        self.registerField("email_address", self.email_input)
+        self.registerField("email_password", self.pw_input)
+
+    def _on_email_changed(self, text):
+        if "@" in text and "." in text.split("@")[-1]:
+            smtp_host, smtp_port = _detect_smtp(text.strip())
+            self.smtp_label.setText(f"→ SMTP 서버: {smtp_host}:{smtp_port} (자동 감지)")
+        else:
+            self.smtp_label.setText("")
+
+    def _test_email(self):
+        import smtplib
+        from email.mime.text import MIMEText
+
+        email = self.email_input.text().strip()
+        password = self.pw_input.text().strip()
+
+        if not email or not password:
+            self.test_result.setText("❌ 이메일과 비밀번호를 입력해주세요.")
+            self.test_result.setStyleSheet("color: #ff1744;")
+            return
+
+        if "@" not in email:
+            self.test_result.setText("❌ 올바른 이메일 형식이 아닙니다.")
+            self.test_result.setStyleSheet("color: #ff1744;")
+            return
+
+        self.test_result.setText("⏳ 전송 중...")
+        self.test_result.setStyleSheet("color: #888;")
+        QApplication.processEvents()
+
+        smtp_host, smtp_port = _detect_smtp(email)
+        try:
+            mail = MIMEText("✅ K-Trader 이메일 알림 테스트 성공!\n이 메시지가 보이면 이메일 설정이 정상입니다.", "plain", "utf-8")
+            mail["Subject"] = "[K-Trader] 이메일 연결 테스트"
+            mail["From"] = email
+            mail["To"] = email
+
+            if smtp_port == 587:
+                server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
+                server.starttls()
+            else:
+                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
+
+            server.login(email, password)
+            server.send_message(mail)
+            server.quit()
+            self.test_result.setText("✅ 전송 성공! 받은편지함을 확인하세요.")
+            self.test_result.setStyleSheet("color: #00c853;")
+        except smtplib.SMTPAuthenticationError:
+            self.test_result.setText("❌ 인증 실패. 앱 비밀번호를 확인하세요.")
+            self.test_result.setStyleSheet("color: #ff1744;")
+        except Exception as e:
+            self.test_result.setText(f"❌ 오류: {str(e)[:60]}")
+            self.test_result.setStyleSheet("color: #ff1744;")
+
+
+class CalendarApiPage(QWizardPage):
+    """페이지 5: 공공데이터 API 키 (선택사항)."""
+
+    def __init__(self):
+        super().__init__()
+        self.setTitle("5단계: 공휴일 API 키 (선택사항)")
         self.setSubTitle("한국투자데이터 API 키가 있으면 공휴일 자동 판별이 가능합니다.")
 
         layout = QVBoxLayout()
@@ -350,6 +493,8 @@ class CompletePage(QWizardPage):
         real_target = self.field("real_target") or ""
         real_pw = self.field("real_pw") or ""
         webhook = self.field("discord_webhook") or ""
+        email_address = self.field("email_address") or ""
+        email_password = self.field("email_password") or ""
         api_key = self.field("calendar_api_key") or ""
 
         def mask_account(acc):
@@ -360,6 +505,13 @@ class CompletePage(QWizardPage):
                 return f"{acc[:4]}****{acc[-2:]}"
             return acc
 
+        def mask_email(addr):
+            if not addr or "@" not in addr:
+                return "❌ 미설정"
+            local, domain = addr.split("@", 1)
+            masked = local[:2] + "***" if len(local) > 2 else local
+            return f"✅ {masked}@{domain}"
+
         summary_lines = [
             "═══════════════════════════════════",
             "  K-Trader 설정 요약",
@@ -369,21 +521,30 @@ class CompletePage(QWizardPage):
             f"  실계좌 지정계좌:   {mask_account(real_target)}",
             f"  실계좌 비밀번호:   {'●' * len(real_pw) if real_pw else '(미설정)'}",
             f"  디스코드 웹훅:     {'✅ 설정됨' if webhook else '❌ 미설정'}",
+            f"  이메일 알림:       {mask_email(email_address)}",
             f"  공휴일 API:        {'✅ 설정됨' if api_key else '❌ 미설정 (기본값 사용)'}",
             "═══════════════════════════════════",
         ]
         self.summary.setText("\n".join(summary_lines))
 
         # 저장
-        self._save_secrets(mock_target, mock_pw, real_target, real_pw, webhook, api_key)
+        self._save_secrets(mock_target, mock_pw, real_target, real_pw,
+                           webhook, email_address, email_password, api_key)
 
-    def _save_secrets(self, mock_target, mock_pw, real_target, real_pw, webhook, api_key):
+    def _save_secrets(self, mock_target, mock_pw, real_target, real_pw,
+                      webhook, email_address, email_password, api_key):
+        smtp_host, smtp_port = _detect_smtp(email_address) if email_address else ("", 465)
         secrets = {
             "mock_target_account": mock_target,
             "mock_account_password": mock_pw,
             "real_target_account": real_target,
             "real_account_password": real_pw,
             "discord_webhook": webhook,
+            "email_sender": email_address,
+            "email_password": email_password,
+            "email_receiver": email_address,   # 발신 = 수신
+            "email_smtp_host": smtp_host,
+            "email_smtp_port": smtp_port,
             "calendar_api_key": api_key,
         }
 
@@ -416,6 +577,7 @@ class SetupWizard(QWizard):
         self.addPage(KiwoomCheckPage())
         self.addPage(AccountPage())
         self.addPage(DiscordPage())
+        self.addPage(EmailPage())
         self.addPage(CalendarApiPage())
         self.addPage(CompletePage())
 

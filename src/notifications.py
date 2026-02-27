@@ -52,6 +52,24 @@ class Notifier:
         self.email_password = secrets.get("email_password", "")
         self.email_receiver = secrets.get("email_receiver", "") or self.email_sender
 
+        # SMTP 설정: secrets에 저장된 값 우선, 없으면 이메일 도메인으로 자동 감지
+        saved_smtp_host = secrets.get("email_smtp_host", "")
+        saved_smtp_port = secrets.get("email_smtp_port", 0)
+        if saved_smtp_host and saved_smtp_port:
+            self.email_smtp_host = saved_smtp_host
+            self.email_smtp_port = int(saved_smtp_port)
+        elif self.email_sender and "@" in self.email_sender:
+            self.email_smtp_host, self.email_smtp_port = self._detect_smtp(self.email_sender)
+        else:
+            self.email_smtp_host = ""
+            self.email_smtp_port = 465
+
+        # 이메일 설정 로깅
+        if self.email_sender and self.email_smtp_host:
+            logger.info(f"✅ [알림] 이메일 설정 로드 완료 ({self.email_sender} → {self.email_smtp_host}:{self.email_smtp_port})")
+        elif self.email_sender:
+            logger.warning("⚠️ [알림] 이메일 주소는 있으나 SMTP 서버를 감지하지 못했습니다.")
+
         # 초기화 시 Webhook URL 유효성 검증
         if not self.discord_url:
             logger.warning("⚠️ [알림] discord_webhook URL이 비어있습니다! secrets.json을 확인하세요.")
@@ -68,6 +86,25 @@ class Notifier:
     # ══════════════════════════════════════════════════════════
     #  큐 워커 및 기반 메서드
     # ══════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _detect_smtp(email: str) -> tuple:
+        """이메일 도메인으로 SMTP 서버/포트 자동 감지."""
+        domain = email.split("@")[-1].lower() if "@" in email else ""
+        smtp_map = {
+            "gmail.com":    ("smtp.gmail.com",  465),
+            "naver.com":    ("smtp.naver.com",  465),
+            "daum.net":     ("smtp.daum.net",   465),
+            "hanmail.net":  ("smtp.daum.net",   465),
+            "kakao.com":    ("smtp.kakao.com",  465),
+            "nate.com":     ("smtp.nate.com",   465),
+            "outlook.com":  ("smtp.office365.com", 587),
+            "hotmail.com":  ("smtp.office365.com", 587),
+            "live.com":     ("smtp.office365.com", 587),
+            "yahoo.com":    ("smtp.mail.yahoo.com", 465),
+        }
+        return smtp_map.get(domain, ("smtp." + domain, 465))
+
     def _worker_loop(self):
         """큐에 쌓인 알림 요청을 하나씩 꺼내어 처리하는 무한 루프."""
         while not self._shutdown_event.is_set():
@@ -217,8 +254,13 @@ class Notifier:
                     part['Content-Disposition'] = f'attachment; filename="{os.path.basename(attachment_path)}"'
                     mail.attach(part)
 
-            smtp_host = "smtp.gmail.com"
-            server = smtplib.SMTP_SSL(smtp_host, 465)
+            smtp_host = self.email_smtp_host or self._detect_smtp(self.email_sender)[0]
+            smtp_port = self.email_smtp_port or self._detect_smtp(self.email_sender)[1]
+            if smtp_port == 587:
+                server = smtplib.SMTP(smtp_host, smtp_port, timeout=15)
+                server.starttls()
+            else:
+                server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=15)
             server.login(self.email_sender, self.email_password)
             server.send_message(mail)
             server.quit()
