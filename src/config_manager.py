@@ -1,5 +1,5 @@
 """
-K-Trader Master v6.0 - 설정 & 시크릿 관리
+K-Trader v6.0 - 설정 & 시크릿 관리
 [개선 #2]  secrets.json 암호화 (Fernet 대칭키)
 [개선 #18] 조건식별 독립 파라미터 지원
 """

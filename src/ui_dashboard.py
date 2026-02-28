@@ -199,6 +199,19 @@ class TradingUI(QMainWindow):
                 exit_code = -1  # 이하 크래시 처리 로직으로 넘김
 
             logger.warning(f"⚠️ [UI] 엔진 프로세스 사망 감지 (exit={exit_code})")
+
+            # [Fix D/E] 엔진 크래시 시 UI 잠금 해제 — 재시작 후 계좌/조건식 선택 및 가동 가능하게
+            if self.is_trading_started:
+                self.is_trading_started = False
+                self.auto_start_countdown = 30
+                self.account_cb.setEnabled(True)
+                self.condition_list.setEnabled(True)
+                self.btn_start.setText("🚀 전략 가동 시작")
+                self.btn_start.setProperty("trading", "false")
+                self.btn_start.style().unpolish(self.btn_start)
+                self.btn_start.style().polish(self.btn_start)
+                logger.info("[UI] 엔진 크래시 → is_trading_started 리셋, UI 잠금 해제")
+
             if self._engine_crash_count < self._max_engine_restarts:
                 self._engine_crash_count += 1
                 # 지수 백오프: 1회→10초, 2회→20초, 3회→40초, 4~→60초 (키움 점검 대응)
@@ -332,6 +345,9 @@ class TradingUI(QMainWindow):
                 self.pw_input.setText(self._get_account_password())
                 self.status_label.setText(f"🔵 모의투자 연결 | {phase}{sync_badge}")
                 self.status_label.setStyleSheet("color: #38bdf8; font-weight: bold; font-size: 14px;") # 밝은 파랑
+                # [Fix D/E] 크래시 후 재시작된 엔진이 READY로 돌아오면 자동 가동 타이머 재시작
+                # _check_engine_health()에서 이미 is_trading_started=False로 리셋했으므로
+                # 조건이 정상적으로 통과됨
                 if not self.auto_start_timer.isActive() and not self.is_trading_started:
                     self.auto_start_timer.start(1000)
             
@@ -1330,7 +1346,11 @@ class TradingUI(QMainWindow):
     def _execute_eod(self):
         """장 마감 처리. blocking 작업은 스레드에서, Qt 종료는 메인 스레드에서."""
         self._send_log("🌙 장 마감 정산 돌입. 엔진 안전 종료.")
-        self.ipc_server.send_command("SHUTDOWN_ENGINE", "장 마감 자동 종료")
+        # [Fix C] 엔진이 이미 OFFLINE인 경우 SHUTDOWN_ENGINE 명령 생략 (불필요한 IPC 오류 방지)
+        if self.engine_status != "OFFLINE":
+            self.ipc_server.send_command("SHUTDOWN_ENGINE", "장 마감 자동 종료")
+        else:
+            logger.info("[UI] EOD: 엔진이 이미 OFFLINE 상태 → SHUTDOWN_ENGINE 명령 생략")
 
         def _eod_worker():
             if self.engine_proc:
