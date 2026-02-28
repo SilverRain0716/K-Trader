@@ -609,6 +609,26 @@ class TradingEngine(QMainWindow):
                     data['_last_sell_reason'] = "⏰ 타임컷 일괄청산"
                     self._execute_sell(code, "⏰ 타임컷 일괄청산", data['qty'])
 
+        elif cmd == "DISCONNECT":
+            # 접속 끊기: 매매 중지 + 키움 연결 해제 (UI는 유지, 엔진 프로세스는 종료)
+            # UI가 엔진을 재스폰하면 다시 연결됩니다.
+            logger.info("🔌 [엔진] 사용자 요청으로 접속 해제 중...")
+            self.is_trading = False
+            try:
+                for cond in self.condition_list:
+                    try:
+                        self.kiwoom.dynamicCall("SendConditionStop(QString, QString, int)",
+                                               "0300", cond['name'], int(cond['idx']))
+                    except Exception:
+                        pass
+                self.kiwoom.dynamicCall("CommTerminate()")
+            except Exception as e:
+                logger.warning(f"⚠️ [접속 해제] CommTerminate 오류 (무시): {e}")
+            self._save_bot_state()
+            self.ipc_client.stop()
+            self.db.close()
+            sys.exit(0)  # 엔진 종료 → UI가 감지 후 재스폰 대기 상태로 전환
+
         elif cmd == "SHUTDOWN_ENGINE":
             reason = args if args else "사용자 수동 종료"
             self._execute_shutdown(reason)
@@ -922,12 +942,14 @@ class TradingEngine(QMainWindow):
             # [v7.5] 분할매도 초기화
             try:
                 if cfg.get("split_sell_enabled"):
-                    targets = cfg.get("split_sell_targets", [])
-                    if targets:
-                        port_entry['split_sell'] = {
-                            "initial_qty": total_qty,
-                            "targets": [{"pct": t["pct"], "ratio": t["ratio"], "done": False} for t in targets]
-                        }
+                    ratio1 = cfg.get("split_sell_ratio", 50)
+                    profit_pct = cfg.get("profit", 2.3)
+                    port_entry['split_sell'] = {
+                        "initial_qty": total_qty,
+                        "ratio1": ratio1,           # 1차 매도 비중 (%)
+                        "t1_done": False,           # 1차 익절% 도달 여부
+                        "profit_pct": profit_pct,   # 1차 트리거 = 익절%
+                    }
             except Exception as e:
                 logger.error(f"❌ [분할매도] 초기화 오류: {e}")
             self.portfolio[code] = port_entry
@@ -994,52 +1016,64 @@ class TradingEngine(QMainWindow):
             ts_act = self.config_mgr.get_condition_param(c_name, "ts_activation") or 4.0
             ts_drop = self.config_mgr.get_condition_param(c_name, "ts_drop") or 0.75
 
-            # [v7.5] 분할매도 처리
+            # [v7.6] 분할매도 처리
+            # 로직:
+            #   손절(%): 항상 전량 즉시 매도 (분할 무관)
+            #   TS 발동:  항상 전량 즉시 매도 (분할 무관)
+            #   익절%:    1차 비중(ratio1%)만 매도, t1_done=True
+            #   익절+2%:  잔여 전량 매도 (t1_done이 True인 경우에만)
+            #   → TS와 익절이 동시 설정된 경우: 1차 비중 매도 후 TS가 잔여 물량을 처리
             ss = data.get('split_sell')
-            if ss and ss.get('targets'):
+            if ss:
                 try:
-                    # 손절/TS는 항상 전량
-                    if yield_rate <= (self.config_mgr.get_condition_param(c_name, "loss") or -1.7):
-                        reason = "🛑 손절"
-                        sellable = data['qty'] - self._pending_sell_qty.get(code, 0)
+                    loss_pct  = self.config_mgr.get_condition_param(c_name, "loss")  or -1.7
+                    profit_pct = ss.get('profit_pct') or (self.config_mgr.get_condition_param(c_name, "profit") or 2.3)
+                    ratio1    = ss.get('ratio1', 50)
+                    t1_done   = ss.get('t1_done', False)
+                    pending   = self._pending_sell_qty.get(code, 0)
+
+                    # ① 손절: 전량
+                    if yield_rate <= loss_pct:
+                        sellable = data['qty'] - pending
                         if sellable > 0:
                             data['sell_ordered'] = True
+                            data['_last_sell_reason'] = "🛑 손절"
+                            self._execute_sell(code, "🛑 손절", sellable)
+                        return
+
+                    # ② TS 발동: 전량 (1차 매도 여부 무관)
+                    ts_use = self.config_mgr.get_condition_param(c_name, "ts_use")
+                    if ts_use and high_yield >= ts_act:
+                        if (data['high_price'] - curr_p) / data['high_price'] * 100 >= ts_drop:
+                            sellable = data['qty'] - pending
+                            if sellable > 0:
+                                data['sell_ordered'] = True
+                                data['_last_sell_reason'] = "📉 T.S 발동"
+                                self._execute_sell(code, "📉 T.S 발동", sellable)
+                            return
+
+                    # ③ 1차: 익절% 도달 → ratio1% 매도
+                    if not t1_done and yield_rate >= profit_pct:
+                        initial_qty = ss.get('initial_qty') or data['qty']
+                        sq = max(1, int(initial_qty * ratio1 / 100))
+                        sq = min(sq, data['qty'] - pending)
+                        if sq > 0:
+                            ss['t1_done'] = True
+                            reason = f"🎯 분할1차 ({ratio1}% @ +{profit_pct:.1f}%)"
+                            data['_last_sell_reason'] = reason
+                            self._execute_sell(code, reason, sq)
+                        return
+
+                    # ④ 2차: 익절+2% 도달 → 잔여 전량 (TS 미사용 또는 TS 미활성인 경우 대비)
+                    if t1_done and yield_rate >= profit_pct + 2.0:
+                        sellable = data['qty'] - pending
+                        if sellable > 0:
+                            data['sell_ordered'] = True
+                            reason = f"🎯 분할2차 전량 (+{profit_pct + 2.0:.1f}%)"
                             data['_last_sell_reason'] = reason
                             self._execute_sell(code, reason, sellable)
                         return
-                    if self.config_mgr.get_condition_param(c_name, "ts_use") and high_yield >= ts_act:
-                        if (data['high_price'] - curr_p) / data['high_price'] * 100 >= ts_drop:
-                            reason = "📉 T.S 발동"
-                            sellable = data['qty'] - self._pending_sell_qty.get(code, 0)
-                            if sellable > 0:
-                                data['sell_ordered'] = True
-                                data['_last_sell_reason'] = reason
-                                self._execute_sell(code, reason, sellable)
-                            return
-                    # 구간별 분할 익절
-                    # 초기 총수량 복원 (split_buy에서 계획 수량 or 최초 체결 수량)
-                    initial_qty = ss.get('initial_qty') or data['qty']
-                    targets = ss['targets']
-                    for idx, tgt in enumerate(targets):
-                        if tgt.get('done'):
-                            continue
-                        if yield_rate >= tgt['pct']:
-                            pending = self._pending_sell_qty.get(code, 0)
-                            is_last = all(t.get('done') for t in targets[idx+1:])
-                            if is_last:
-                                # 마지막 구간: 잔여 전량 매도
-                                sq = data['qty'] - pending
-                            else:
-                                sq = max(1, int(initial_qty * tgt['ratio'] / 100))
-                                sq = min(sq, data['qty'] - pending)
-                            if sq > 0:
-                                tgt['done'] = True
-                                reason = f"🎯 분할익절 (+{tgt['pct']}%, {tgt['ratio']}%)"
-                                data['_last_sell_reason'] = reason
-                                self._execute_sell(code, reason, sq)
-                                if all(t.get('done') for t in targets):
-                                    data['sell_ordered'] = True
-                            break
+
                 except Exception as e:
                     logger.error(f"❌ [분할매도] {code} 오류: {e}")
                 return

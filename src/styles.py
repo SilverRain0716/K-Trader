@@ -206,6 +206,18 @@ QPushButton#btn_exit:hover {{
     color: white;
 }}
 
+QPushButton#btn_disconnect {{
+    background-color: #1e3a5f; /* 어두운 파랑 */
+    color: #93c5fd;
+    font-size: 15px;
+    min-height: 50px;
+    border-radius: 8px;
+}}
+QPushButton#btn_disconnect:hover {{
+    background-color: #1d4ed8; /* Blue 700 */
+    color: white;
+}}
+
 /* 수동매도 버튼 */
 QPushButton#btn_manual_sell {{
     background-color: #4c1d95; /* Violet 900 */

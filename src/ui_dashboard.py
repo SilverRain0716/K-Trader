@@ -912,36 +912,23 @@ class TradingUI(QMainWindow):
         self.split_buy_confirm.valueChanged.connect(self._mark_config_dirty)
         s3.addWidget(self.split_buy_confirm, 0, 5)
 
-        # Row 1: 분할매도
+        # Row 1: 분할매도 — % 입력 없이 비중만 설정
+        # 익절%에서 1차 비중 매도 → TS 또는 잔여 익절%+2%에서 나머지 전량 매도
         self.split_sell_cb = QCheckBox("분할매도")
         self.split_sell_cb.stateChanged.connect(self._mark_config_dirty)
         s3.addWidget(self.split_sell_cb, 1, 0)
-        lbl = QLabel("1구간:"); lbl.setObjectName("setting_label")
+        lbl = QLabel("1차매도:"); lbl.setObjectName("setting_label")
         s3.addWidget(lbl, 1, 1)
-        self.split_sell_t1_pct = QDoubleSpinBox()
-        self.split_sell_t1_pct.setRange(0.5, 30.0)
-        self.split_sell_t1_pct.setSingleStep(0.1)
-        self.split_sell_t1_pct.setSuffix("% @")
-        self.split_sell_t1_pct.valueChanged.connect(self._mark_config_dirty)
-        s3.addWidget(self.split_sell_t1_pct, 1, 2)
         self.split_sell_t1_ratio = QSpinBox()
         self.split_sell_t1_ratio.setRange(10, 90)
-        self.split_sell_t1_ratio.setSuffix("%매도")
+        self.split_sell_t1_ratio.setValue(50)
+        self.split_sell_t1_ratio.setSuffix("%")
+        self.split_sell_t1_ratio.setToolTip("익절% 도달 시 매도할 비중 (나머지는 TS 또는 익절%+2%에서 전량 매도)")
         self.split_sell_t1_ratio.valueChanged.connect(self._mark_config_dirty)
-        s3.addWidget(self.split_sell_t1_ratio, 1, 3)
-        lbl = QLabel("2구간:"); lbl.setObjectName("setting_label")
-        s3.addWidget(lbl, 1, 4)
-        self.split_sell_t2_pct = QDoubleSpinBox()
-        self.split_sell_t2_pct.setRange(0.5, 30.0)
-        self.split_sell_t2_pct.setSingleStep(0.1)
-        self.split_sell_t2_pct.setSuffix("% @")
-        self.split_sell_t2_pct.valueChanged.connect(self._mark_config_dirty)
-        s3.addWidget(self.split_sell_t2_pct, 1, 5)
-        self.split_sell_t2_ratio = QSpinBox()
-        self.split_sell_t2_ratio.setRange(10, 90)
-        self.split_sell_t2_ratio.setSuffix("%매도")
-        self.split_sell_t2_ratio.valueChanged.connect(self._mark_config_dirty)
-        s3.addWidget(self.split_sell_t2_ratio, 1, 6)
+        s3.addWidget(self.split_sell_t1_ratio, 1, 2)
+        lbl2 = QLabel("→ 나머지는 TS/익절+2% 전량"); lbl2.setObjectName("setting_label")
+        lbl2.setStyleSheet(f"color: {COLORS.get('text_secondary', '#888')}; font-size: 11px;")
+        s3.addWidget(lbl2, 1, 3, 1, 3)  # colspan 3
 
         settings_vbox.addLayout(s3)
 
@@ -1085,12 +1072,18 @@ class TradingUI(QMainWindow):
         self.btn_start.setObjectName("btn_start")
         self.btn_start.clicked.connect(self._start_trading)
 
+        self.btn_disconnect = QPushButton("🔌 접속 끊기")
+        self.btn_disconnect.setObjectName("btn_disconnect")
+        self.btn_disconnect.setToolTip("키움 접속만 해제합니다 (UI는 유지). 재연결 버튼으로 다시 연결할 수 있습니다.")
+        self.btn_disconnect.clicked.connect(self._disconnect_engine)
+
         self.btn_exit = QPushButton("❌ 안전 종료")
         self.btn_exit.setObjectName("btn_exit")
         self.btn_exit.clicked.connect(self._confirm_exit)
 
-        btn_layout.addWidget(self.btn_start, stretch=7)
-        btn_layout.addWidget(self.btn_exit, stretch=3)
+        btn_layout.addWidget(self.btn_start, stretch=5)
+        btn_layout.addWidget(self.btn_disconnect, stretch=3)
+        btn_layout.addWidget(self.btn_exit, stretch=2)
         main_layout.addLayout(btn_layout)
 
         main_widget.setLayout(main_layout)
@@ -1129,10 +1122,7 @@ class TradingUI(QMainWindow):
             "split_buy_ratios": [self.split_buy_ratio1.value(), 100 - self.split_buy_ratio1.value()] if self.split_buy_rounds_spin.value() == 2 else [self.split_buy_ratio1.value(), self.split_buy_ratio2.value(), max(0, 100 - self.split_buy_ratio1.value() - self.split_buy_ratio2.value())],
             "split_buy_confirm_pct": round(self.split_buy_confirm.value(), 2),
             "split_sell_enabled": self.split_sell_cb.isChecked(),
-            "split_sell_targets": [
-                {"pct": round(self.split_sell_t1_pct.value(), 2), "ratio": self.split_sell_t1_ratio.value()},
-                {"pct": round(self.split_sell_t2_pct.value(), 2), "ratio": self.split_sell_t2_ratio.value()},
-            ],
+            "split_sell_ratio": self.split_sell_t1_ratio.value(),  # 1차 매도 비중(%), 나머지는 TS/익절+2% 전량
             # 계좌는 secrets.json의 target_account를 단일 진실의 원천으로 사용 (config 저장 불필요)
         }
         self.config_mgr.save(config)
@@ -1234,13 +1224,11 @@ class TradingUI(QMainWindow):
         self.split_buy_ratio2.setValue(ratios[1] if len(ratios) > 1 else 70)
         self.split_buy_confirm.setValue(c.get("split_buy_confirm_pct", 1.0))
         self.split_sell_cb.setChecked(c.get("split_sell_enabled", False))
-        tgts = c.get("split_sell_targets", [{"pct": 2.0, "ratio": 50}, {"pct": 4.0, "ratio": 50}])
-        if len(tgts) >= 1:
-            self.split_sell_t1_pct.setValue(tgts[0].get("pct", 2.0))
-            self.split_sell_t1_ratio.setValue(tgts[0].get("ratio", 50))
-        if len(tgts) >= 2:
-            self.split_sell_t2_pct.setValue(tgts[1].get("pct", 4.0))
-            self.split_sell_t2_ratio.setValue(tgts[1].get("ratio", 50))
+        # 구버전 split_sell_targets 호환: 첫 번째 ratio 값을 가져옴
+        legacy_ratio = 50
+        if "split_sell_targets" in c and c["split_sell_targets"]:
+            legacy_ratio = c["split_sell_targets"][0].get("ratio", 50)
+        self.split_sell_t1_ratio.setValue(c.get("split_sell_ratio", legacy_ratio))
         self._block_signals(False)
 
     def _block_signals(self, block: bool):
@@ -1250,8 +1238,7 @@ class TradingUI(QMainWindow):
                   self.timecut_cb, self.shutdown_cb, self.order_type_cb, self.minimize_to_tray_cb,
                   self.split_buy_cb, self.split_buy_rounds_spin, self.split_buy_ratio1,
                   self.split_buy_ratio2, self.split_buy_confirm,
-                  self.split_sell_cb, self.split_sell_t1_pct, self.split_sell_t1_ratio,
-                  self.split_sell_t2_pct, self.split_sell_t2_ratio]:
+                  self.split_sell_cb, self.split_sell_t1_ratio]:
             w.blockSignals(block)
 
     def _on_invest_type_changed(self):
@@ -1450,6 +1437,61 @@ class TradingUI(QMainWindow):
         logging.info(clean)
         self.log_window.append(f"[{ts}] {clean}")
         self.log_window.verticalScrollBar().setValue(self.log_window.verticalScrollBar().maximum())
+
+    def _disconnect_engine(self):
+        """키움 접속만 끊습니다. UI는 유지되고 재연결 버튼으로 다시 연결할 수 있습니다."""
+        if self.is_trading:
+            if QMessageBox.question(
+                self, "매매 중 접속 해제",
+                "현재 전략이 가동 중입니다.\n접속을 끊으면 보유 포지션은 유지되고 자동 매매는 중단됩니다.\n계속하시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No
+            ) != QMessageBox.Yes:
+                return
+
+        self._send_log("🔌 키움 접속 해제 중... (UI는 유지됩니다)")
+        self.is_trading = False
+        self.engine_status = "OFFLINE"
+        self._engine_crash_count = self._max_engine_restarts  # 자동 재시작 비활성화
+        try:
+            self.ipc_server.send_command("DISCONNECT", "")
+        except Exception:
+            pass
+        # 버튼 전환: 재연결 모드
+        self.btn_disconnect.setText("🔄 재연결")
+        self.btn_disconnect.setToolTip("키움에 다시 접속합니다.")
+        self.btn_disconnect.clicked.disconnect()
+        self.btn_disconnect.clicked.connect(self._reconnect_engine)
+        self.btn_start.setEnabled(False)
+        self.status_label.setText("🔌 접속 해제됨 — 재연결 버튼으로 다시 연결하세요")
+        self.status_label.setStyleSheet(f"color: {COLORS['warning_orange']};")
+
+    def _reconnect_engine(self):
+        """엔진을 재스폰하여 키움에 다시 접속합니다."""
+        self._send_log("🔄 재연결 중... 엔진을 다시 시작합니다.")
+        self._engine_crash_count = 0  # 자동 재시작 카운터 초기화
+        self.engine_status = "RECONNECTING"
+        self.engine_proc = None
+        # IPC 서버 재시작
+        try:
+            self.ipc_server.stop()
+        except Exception:
+            pass
+        try:
+            from src.ipc import UI_IPCServer
+            self.ipc_server = UI_IPCServer(self._on_engine_state, self._on_command)
+            self.ipc_server.start()
+        except Exception as e:
+            self._send_log(f"❌ IPC 서버 재시작 실패: {e}")
+            return
+        self._spawn_engine()
+        # 버튼 원복
+        self.btn_disconnect.setText("🔌 접속 끊기")
+        self.btn_disconnect.setToolTip("키움 접속만 해제합니다 (UI는 유지). 재연결 버튼으로 다시 연결할 수 있습니다.")
+        self.btn_disconnect.clicked.disconnect()
+        self.btn_disconnect.clicked.connect(self._disconnect_engine)
+        self.btn_start.setEnabled(True)
+        self.status_label.setText("🔄 재연결 중...")
+        self.status_label.setStyleSheet(f"color: {COLORS['accent_blue']};")
 
     def _confirm_exit(self):
         if QMessageBox.question(self, "종료", "시스템을 종료하시겠습니까?\n엔진도 함께 종료됩니다.",
