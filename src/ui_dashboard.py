@@ -91,12 +91,12 @@ class TradingUI(QMainWindow):
         self._available_accounts = []  # 엔진에서 받은 전체 계좌 목록 (계좌변경 다이얼로그용)
 
         self.setWindowTitle(f"K-Trader v{__version__}")
-        # 화면 크기에 맞게 창 위치/크기 자동 조정 (작업표시줄 제외 영역 기준)
+        # 작업표시줄 제외 가용 영역에 딱 맞게 배치 (항상 화면 안에 들어오도록)
         _screen = QApplication.primaryScreen().availableGeometry()
         _win_w = min(1150, _screen.width() - 40)
-        _win_h = min(900,  _screen.height() - 60)
-        _win_x = (_screen.width()  - _win_w) // 2
-        _win_y = max(20, (_screen.height() - _win_h) // 2)
+        _win_h = _screen.height() - 40          # 가용 높이 전체 - 여유 40px
+        _win_x = _screen.x() + (_screen.width()  - _win_w) // 2
+        _win_y = _screen.y() + 20               # 상단 기준으로 20px 여유
         self.setGeometry(_win_x, _win_y, _win_w, _win_h)
         self.setStyleSheet(DARK_THEME_QSS)
 
