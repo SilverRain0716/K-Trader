@@ -154,10 +154,19 @@ class TradingUI(QMainWindow):
             logger.info("[UI] _spawn_engine 호출 무시: 엔진 이미 실행 중 (PID=%s)", self.engine_proc.pid)
             return
 
-        main_script = os.path.join(BASE_DIR, "main.py")
         try:
+            if getattr(sys, 'frozen', False):
+                # PyInstaller exe 환경: exe 자체를 "engine" 인자로 재실행
+                # [주의] main.py를 인자로 넘기면 sys.argv[1]이 경로 문자열이 되어
+                #        mode 판별에 실패하고 UI 모드로 진입하는 버그가 생김
+                cmd = [sys.executable, "engine", str(self.ipc_server.port)]
+            else:
+                # 개발 환경: python main.py engine PORT
+                main_script = os.path.join(BASE_DIR, "main.py")
+                cmd = [sys.executable, main_script, "engine", str(self.ipc_server.port)]
+
             self.engine_proc = subprocess.Popen(
-                [sys.executable, main_script, "engine", str(self.ipc_server.port)],
+                cmd,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
             )
             logger.info(f"[UI] 엔진 프로세스 스폰 (PID: {self.engine_proc.pid}, PORT: {self.ipc_server.port})")

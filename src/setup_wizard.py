@@ -624,7 +624,7 @@ if __name__ == "__main__":
         msg.setWindowTitle("설정 완료")
         msg.setText(
             "✅ 초기 설정이 완료되었습니다!\n\n"
-            "바탕화면의 'K-Trader Master' 아이콘으로 프로그램을 실행하세요."
+            "바탕화면의 'K-Trader' 아이콘으로 프로그램을 실행하세요."
         )
         msg.setIcon(QMessageBox.Information)
         msg.exec_()
