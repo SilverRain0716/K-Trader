@@ -1,12 +1,12 @@
-; K-Trader Master — Inno Setup 인스톨러 스크립트
+; K-Trader — Inno Setup 인스톨러 스크립트
 ; Inno Setup 6.x 이상 필요: https://jrsoftware.org/isdl.php
 
 [Setup]
-AppName=K-Trader Master
+AppName=K-Trader
 AppVersion=7.5
 AppPublisher=K-Trader
 DefaultDirName={autopf}\K-Trader
-DefaultGroupName=K-Trader Master
+DefaultGroupName=K-Trader
 OutputBaseFilename=K-Trader_Setup_v7.5
 SetupIconFile=assets\icon.ico
 Compression=lzma2
@@ -35,11 +35,12 @@ Name: "{app}\reports"
 
 [Icons]
 ; 시작 메뉴
-Name: "{group}\K-Trader Master"; Filename: "{app}\K-Trader.exe"
+Name: "{group}\K-Trader"; Filename: "{app}\K-Trader.exe"
+Name: "{group}\K-Trader Master (설정 마법사)"; Filename: "{app}\K-Trader Setup Wizard.exe"
 Name: "{group}\사용 가이드"; Filename: "{app}\docs\K-Trader_Guide.pdf"
 Name: "{group}\K-Trader 제거"; Filename: "{uninstallexe}"
-; 바탕화면 바로가기 (항상 생성, 체크박스 없음)
-Name: "{commondesktop}\K-Trader Master"; Filename: "{app}\K-Trader.exe"
+; 바탕화면 바로가기 — K-Trader (실행 파일)만 생성
+Name: "{commondesktop}\K-Trader"; Filename: "{app}\K-Trader.exe"
 
 [Run]
 ; 설치 완료 후 설정 마법사 자동 실행 (체크박스 없이 항상 실행)
