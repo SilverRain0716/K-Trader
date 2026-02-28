@@ -19,7 +19,13 @@ from PyQt5.QtWidgets import QMainWindow, QApplication
 from PyQt5.QAxContainer import QAxWidget
 from PyQt5.QtCore import QTimer, QObject
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# PyInstaller --onedir 빌드 시 __file__은 _internal 폴더 안을 가리키므로
+# sys.executable(K-Trader.exe) 기준의 폴더를 사용합니다.
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 
 from src.database import Database
 from src.config_manager import ConfigManager, SecretManager
@@ -29,7 +35,6 @@ from src.utils import safe_int, calc_sell_cost, get_user_data_dir, resolve_db_pa
 from src.ipc import Engine_IPCClient
 
 logger = logging.getLogger("ktrader")
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
 
@@ -100,6 +105,7 @@ class TradingEngine(QMainWindow):
         self._reconnect_timer.setSingleShot(True)
         self._reconnect_timer.timeout.connect(self._do_reconnect)
         self._pre_market_reconnect_date = None  # 8:50 강제 재연결 하루 1회 플래그
+        self._midnight_reset_date = None       # 자정 P&L 리셋 (24시간 운영 대응)
         
         self.account = ""
         self.account_password = ""  # [Fix #2] 비밀번호 저장용
@@ -398,6 +404,23 @@ class TradingEngine(QMainWindow):
         }
         self.ipc_client.send_state(state)
         self.db.write_engine_state(state)
+
+        # ── 자정 P&L 리셋 (AWS 24시간 운영 대응) ──────────────────────────
+        # today_realized_profit은 누적 합산이므로, 날짜가 바뀌면 DB에서 오늘 기준으로 재로드합니다.
+        try:
+            today = datetime.date.today().isoformat()
+            if self._midnight_reset_date != today:
+                self._midnight_reset_date = today
+                new_profit = self.db.get_today_trade_summary().get('realized_profit', 0)
+                if new_profit != self.today_realized_profit:
+                    logger.info(f"🌅 [자정 리셋] 일일 실현손익 초기화: {self.today_realized_profit:+,} → {new_profit:+,}")
+                    self.today_realized_profit = new_profit
+                self._loss_limit_triggered = False     # 손실 한도 플래그도 리셋
+                self._shutdown_report_sent_date = None  # 마감 리포트 플래그 리셋
+                self._cond_reregistered_date = None     # 조건식 재등록 플래그 리셋
+                self._market_open_notified_date = None  # 장 시작 알림 플래그 리셋
+        except Exception as e:
+            logger.error(f"❌ [자정 리셋] 오류: {e}")
 
         # ── 8:50 AM 장 시작 전 최종 재연결 안전망 ──────────────────────────
         # 키움 서버 점검(08:00~08:20) 후 재연결이 실패한 상태로 남아 있을 경우를 대비,
@@ -1235,7 +1258,23 @@ class TradingEngine(QMainWindow):
                 del self.unexecuted_orders[o_no]
 
 
+def _cleanup_old_logs(logs_dir, max_days=30):
+    """30일 이상 된 로그 파일을 자동 삭제합니다."""
+    import glob
+    cutoff = time.time() - (max_days * 86400)
+    for pattern in ["engine_*.log", "ui_*.log"]:
+        for f in glob.glob(os.path.join(logs_dir, pattern)):
+            try:
+                if os.path.getmtime(f) < cutoff:
+                    os.remove(f)
+            except Exception:
+                pass
+
+
 def run_engine(ipc_port):
+    # 로그 로테이션: 30일 이상 된 로그 파일 자동 삭제
+    _cleanup_old_logs(LOGS_DIR)
+
     # 엔진 로그 파일 (UI가 백그라운드 스폰해도 장애 원인 추적 가능)
     log_file = os.path.join(LOGS_DIR, f"engine_{time.strftime('%Y%m%d')}.log")
     kt_logger = logging.getLogger("ktrader")

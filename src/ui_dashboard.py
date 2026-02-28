@@ -24,7 +24,13 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QIcon, QColor, QFont, QBrush
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# PyInstaller --onedir 빌드 시 __file__은 _internal 폴더 안을 가리키므로
+# sys.executable(K-Trader.exe) 기준의 폴더를 사용합니다.
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 
 from src.database import Database
 from src.config_manager import ConfigManager, SecretManager
@@ -36,7 +42,6 @@ from src.ipc import UI_IPCServer
 
 logger = logging.getLogger("ktrader")
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
@@ -1478,7 +1483,21 @@ class TradingUI(QMainWindow):
         event.accept()
 
 
+def _cleanup_old_logs(logs_dir, max_days=30):
+    """30일 이상 된 로그 파일을 자동 삭제합니다."""
+    import glob
+    cutoff = time.time() - (max_days * 86400)
+    for pattern in ["engine_*.log", "ui_*.log"]:
+        for f in glob.glob(os.path.join(logs_dir, pattern)):
+            try:
+                if os.path.getmtime(f) < cutoff:
+                    os.remove(f)
+            except Exception:
+                pass
+
+
 def run_ui():
+    _cleanup_old_logs(LOGS_DIR)
     log_file = os.path.join(LOGS_DIR, f"ui_{datetime.datetime.now().strftime('%Y%m%d')}.log")
     kt_logger = logging.getLogger("ktrader")
     kt_logger.setLevel(logging.INFO)
