@@ -78,6 +78,7 @@ class TradingUI(QMainWindow):
         self.is_trading_started = False
         self.engine_proc = None
         self._spawn_pending = False  # QTimer.singleShot 중복 예약 방지
+        self._disconnecting = False  # 접속 끊기 중 플래그 (health_check 크래시 방지)
         self.default_conditions = self.config_mgr.get("default_conditions", ["나의급등주02"])
 
         self._engine_crash_count = 0
@@ -190,6 +191,12 @@ class TradingUI(QMainWindow):
 
         if self.engine_proc and self.engine_proc.poll() is not None:
             exit_code = self.engine_proc.returncode
+
+            # 사용자가 접속 끊기를 눌러서 의도적으로 종료한 경우 → 크래시 처리 안 함
+            if getattr(self, '_disconnecting', False):
+                self.engine_proc = None
+                return
+
             if exit_code == 0 and self.engine_status != "OFFLINE":
                 # IPC 연결 후 정상 종료 (장 마감 자동 종료 등) → 재시작 안 함
                 logger.info("🌙 [UI] 엔진이 정상적으로 종료되었습니다.")
@@ -743,7 +750,7 @@ class TradingUI(QMainWindow):
         self.condition_list.itemChanged.connect(self._mark_config_dirty)
         s1.addWidget(self.condition_list, 0, 1, 3, 1)
 
-        # 투자 (우측 row 0)
+        # 투자 (우측 row 0) — 전체 너비 사용
         lbl = QLabel("💰 투자"); lbl.setObjectName("setting_label")
         s1.addWidget(lbl, 0, 2)
         invest_layout = QHBoxLayout()
@@ -755,31 +762,30 @@ class TradingUI(QMainWindow):
         self.invest_spin.valueChanged.connect(self._mark_config_dirty)
         invest_layout.addWidget(self.invest_type_cb)
         invest_layout.addWidget(self.invest_spin)
-        s1.addLayout(invest_layout, 0, 3)
+        s1.addLayout(invest_layout, 0, 3, 1, 3)  # colspan 3 → 전체 너비
 
-        # 익절
+        # Row 1: 익절 | 손절 | T.S — 한 줄에 배치
         lbl = QLabel("🎯 익절"); lbl.setObjectName("setting_label")
         lbl.setStyleSheet(f"color: {COLORS['profit_red']}; font-weight: bold;")
-        s1.addWidget(lbl, 0, 4)
+        s1.addWidget(lbl, 1, 2)
         self.profit_spin = QDoubleSpinBox()
         self.profit_spin.setRange(0.1, 30.0)
         self.profit_spin.setSingleStep(0.1)
         self.profit_spin.setSuffix("%")
         self.profit_spin.valueChanged.connect(self._mark_config_dirty)
-        s1.addWidget(self.profit_spin, 0, 5)
+        s1.addWidget(self.profit_spin, 1, 3)
 
-        # 손절
         lbl = QLabel("🛑 손절"); lbl.setObjectName("setting_label")
         lbl.setStyleSheet(f"color: {COLORS['loss_blue']}; font-weight: bold;")
-        s1.addWidget(lbl, 1, 2)
+        s1.addWidget(lbl, 1, 4)
         self.loss_spin = QDoubleSpinBox()
         self.loss_spin.setRange(-30.0, -0.1)
         self.loss_spin.setSingleStep(0.1)
         self.loss_spin.setSuffix("%")
         self.loss_spin.valueChanged.connect(self._mark_config_dirty)
-        s1.addWidget(self.loss_spin, 1, 3)
+        s1.addWidget(self.loss_spin, 1, 5)
 
-        # T.S
+        # Row 2: T.S — 조건식 옆 공간 활용
         ts_layout = QHBoxLayout()
         self.ts_use_cb = QCheckBox("T.S")
         self.ts_use_cb.stateChanged.connect(self._mark_config_dirty)
@@ -796,7 +802,7 @@ class TradingUI(QMainWindow):
         ts_layout.addWidget(self.ts_use_cb)
         ts_layout.addWidget(self.ts_activation_spin)
         ts_layout.addWidget(self.ts_drop_spin)
-        s1.addLayout(ts_layout, 1, 4, 1, 2)
+        s1.addLayout(ts_layout, 2, 2, 1, 4)  # row 2, 조건식 옆
 
         settings_vbox.addLayout(s1)
 
@@ -912,9 +918,9 @@ class TradingUI(QMainWindow):
         self.split_buy_confirm.valueChanged.connect(self._mark_config_dirty)
         s3.addWidget(self.split_buy_confirm, 0, 5)
 
-        # Row 1: 분할매도 — % 입력 없이 비중만 설정
-        # 익절%에서 1차 비중 매도 → TS 또는 잔여 익절%+2%에서 나머지 전량 매도
+        # Row 1: 분할매도 — TS와 함께 사용 (익절%에서 1차 비중 매도 → TS가 나머지 처리)
         self.split_sell_cb = QCheckBox("분할매도")
+        self.split_sell_cb.setToolTip("T.S 활성 시에만 동작합니다.\n익절% 도달 → 1차 비중 매도 → 나머지는 T.S가 처리합니다.")
         self.split_sell_cb.stateChanged.connect(self._mark_config_dirty)
         s3.addWidget(self.split_sell_cb, 1, 0)
         lbl = QLabel("1차매도:"); lbl.setObjectName("setting_label")
@@ -923,10 +929,10 @@ class TradingUI(QMainWindow):
         self.split_sell_t1_ratio.setRange(10, 90)
         self.split_sell_t1_ratio.setValue(50)
         self.split_sell_t1_ratio.setSuffix("%")
-        self.split_sell_t1_ratio.setToolTip("익절% 도달 시 매도할 비중 (나머지는 TS 또는 익절%+2%에서 전량 매도)")
+        self.split_sell_t1_ratio.setToolTip("익절% 도달 시 매도할 비중 (나머지는 T.S가 처리)")
         self.split_sell_t1_ratio.valueChanged.connect(self._mark_config_dirty)
         s3.addWidget(self.split_sell_t1_ratio, 1, 2)
-        lbl2 = QLabel("→ 나머지는 TS/익절+2% 전량"); lbl2.setObjectName("setting_label")
+        lbl2 = QLabel("→ 나머지는 T.S 전량"); lbl2.setObjectName("setting_label")
         lbl2.setStyleSheet(f"color: {COLORS.get('text_secondary', '#888')}; font-size: 11px;")
         s3.addWidget(lbl2, 1, 3, 1, 3)  # colspan 3
 
@@ -1440,7 +1446,7 @@ class TradingUI(QMainWindow):
 
     def _disconnect_engine(self):
         """키움 접속만 끊습니다. UI는 유지되고 재연결 버튼으로 다시 연결할 수 있습니다."""
-        if self.is_trading:
+        if self.is_trading_started:
             if QMessageBox.question(
                 self, "매매 중 접속 해제",
                 "현재 전략이 가동 중입니다.\n접속을 끊으면 보유 포지션은 유지되고 자동 매매는 중단됩니다.\n계속하시겠습니까?",
@@ -1449,40 +1455,51 @@ class TradingUI(QMainWindow):
                 return
 
         self._send_log("🔌 키움 접속 해제 중... (UI는 유지됩니다)")
-        self.is_trading = False
-        self.engine_status = "OFFLINE"
+        self.is_trading_started = False
+        self._disconnecting = True  # health_check에서 크래시로 처리 방지 플래그
         self._engine_crash_count = self._max_engine_restarts  # 자동 재시작 비활성화
+
+        # 엔진 프로세스를 직접 종료 (IPC가 끊겨도 안전)
         try:
             self.ipc_server.send_command("DISCONNECT", "")
         except Exception:
             pass
+        # 엔진이 스스로 종료하지 않을 경우 대비 강제 종료
+        if self.engine_proc:
+            try:
+                self.engine_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.engine_proc.terminate()
+                try:
+                    self.engine_proc.wait(timeout=3)
+                except Exception:
+                    pass
+            self.engine_proc = None
+
+        self.engine_status = "DISCONNECTED"
+
         # 버튼 전환: 재연결 모드
         self.btn_disconnect.setText("🔄 재연결")
         self.btn_disconnect.setToolTip("키움에 다시 접속합니다.")
         self.btn_disconnect.clicked.disconnect()
         self.btn_disconnect.clicked.connect(self._reconnect_engine)
         self.btn_start.setEnabled(False)
+        self.btn_start.setText("🚀 전략 가동 시작")
+        self.btn_start.setProperty("trading", "false")
+        self.btn_start.style().unpolish(self.btn_start)
+        self.btn_start.style().polish(self.btn_start)
+        self.btn_change_account.setEnabled(True)
+        self.condition_list.setEnabled(True)
         self.status_label.setText("🔌 접속 해제됨 — 재연결 버튼으로 다시 연결하세요")
         self.status_label.setStyleSheet(f"color: {COLORS['warning_orange']};")
 
     def _reconnect_engine(self):
         """엔진을 재스폰하여 키움에 다시 접속합니다."""
         self._send_log("🔄 재연결 중... 엔진을 다시 시작합니다.")
-        self._engine_crash_count = 0  # 자동 재시작 카운터 초기화
-        self.engine_status = "RECONNECTING"
-        self.engine_proc = None
-        # IPC 서버 재시작
-        try:
-            self.ipc_server.stop()
-        except Exception:
-            pass
-        try:
-            from src.ipc import UI_IPCServer
-            self.ipc_server = UI_IPCServer(self._on_engine_state, self._on_command)
-            self.ipc_server.start()
-        except Exception as e:
-            self._send_log(f"❌ IPC 서버 재시작 실패: {e}")
-            return
+        self._disconnecting = False
+        self._engine_crash_count = 0
+        self.engine_status = "OFFLINE"
+        self.auto_start_countdown = 30
         self._spawn_engine()
         # 버튼 원복
         self.btn_disconnect.setText("🔌 접속 끊기")
