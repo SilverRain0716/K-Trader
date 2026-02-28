@@ -780,6 +780,7 @@ class TradingUI(QMainWindow):
         self.profit_spin.setSingleStep(0.1)
         self.profit_spin.setSuffix("%")
         self.profit_spin.valueChanged.connect(self._mark_config_dirty)
+        self.profit_spin.valueChanged.connect(self._update_split_sell_guide)
         s1.addWidget(self.profit_spin, 1, 3)
 
         lbl = QLabel("🛑 손절"); lbl.setObjectName("setting_label")
@@ -891,7 +892,12 @@ class TradingUI(QMainWindow):
         self.split_sell_offset.setDecimals(1)
         self.split_sell_offset.setToolTip("2차 트리거 = 익절% + offset%\n잔여 전량 매도 (TS 없어도 작동)")
         self.split_sell_offset.valueChanged.connect(self._mark_config_dirty)
+        self.split_sell_offset.valueChanged.connect(self._update_split_sell_guide)
         s2.addWidget(self.split_sell_offset, 1, 4)
+        self.split_sell_guide = QLabel("→ 2차 +2.3%")
+        self.split_sell_guide.setObjectName("setting_label")
+        self.split_sell_guide.setStyleSheet(f"color: {COLORS.get('profit_green', '#4caf50')}; font-size: 11px;")
+        s2.addWidget(self.split_sell_guide, 1, 5)
 
         settings_vbox.addLayout(s2)
 
@@ -1261,6 +1267,7 @@ class TradingUI(QMainWindow):
         )
         self.split_sell_offset.setValue(c.get("split_sell_offset", 1.5))
         self._block_signals(False)
+        self._update_split_sell_guide()
 
     def _block_signals(self, block: bool):
         for w in [self.invest_type_cb, self.invest_spin, self.profit_spin,
@@ -1271,6 +1278,15 @@ class TradingUI(QMainWindow):
                   self.split_buy_ratio2, self.split_buy_confirm,
                   self.split_sell_cb, self.split_sell_t1_ratio, self.split_sell_offset]:
             w.blockSignals(block)
+
+    def _update_split_sell_guide(self):
+        """분할매도 2차 트리거 = 익절% + offset% 를 실시간으로 표시."""
+        try:
+            profit = self.profit_spin.value()
+            offset = self.split_sell_offset.value()
+            self.split_sell_guide.setText(f"→ 2차 +{profit + offset:.1f}%")
+        except Exception:
+            pass
 
     def _on_invest_type_changed(self):
         if self.invest_type_cb.currentText() == "비중(%)":
