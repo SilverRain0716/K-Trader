@@ -1,122 +1,150 @@
 """
-K-Trader Master v6.2 - UI 스타일시트
-[개선] 모던 Slate(다크 블루-그레이) 테마 적용으로 가독성 및 세련미 극대화
+K-Trader Master v7.6 - UI 스타일시트
+[개선] 라이트 모드 테마 — 밝고 선명한 전문가용 트레이딩 UI
+      Bento Grid 카드 구조 + 그림자 깊이감 + 가독성 최우선
 """
 
-# 컬러 팔레트 (최신 웹 트렌드 Slate 다크 테마 기반)
+# ── 컬러 팔레트 (Light Professional Theme) ─────────────────────────
 COLORS = {
-    "bg_primary":     "#0f172a",   # 아주 깊고 세련된 메인 배경 (Slate 900)
-    "bg_secondary":   "#1e293b",   # 패널 및 탭 배경 (Slate 800)
-    "bg_card":        "#334155",   # 강조된 헤더 및 포인트 영역 (Slate 700)
-    "bg_input":       "#020617",   # 입력창은 더 어둡게 하여 확실한 대비 (Slate 950)
-    "bg_table":       "#1e293b",   # 테이블 기본 배경
-    "bg_table_alt":   "#0f172a",   # 테이블 줄무늬 (배경과 동일하게 하여 자연스럽게)
-    "text_primary":   "#f8fafc",   # 눈이 편안한 맑은 흰색 (Slate 50)
-    "text_secondary": "#94a3b8",   # 보조 텍스트 (Slate 400)
-    "text_bright":    "#ffffff",   # 완전 흰색
-    "accent_blue":    "#38bdf8",   # 모던한 스카이 블루 (선택, 포커스)
-    "accent_green":   "#34d399",   # 세련된 에메랄드 그린 (가동중)
-    "profit_red":     "#f87171",   # 산뜻하고 가독성 좋은 수익 빨강 (한국식)
-    "loss_blue":      "#60a5fa",   # 눈에 띄는 손실 파랑 (한국식)
-    "warning_orange": "#fbbf24",   # 경고 주황
-    "danger_red":     "#ef4444",   # 에러/위험
-    "profit_green":   "#34d399",   # 매수 성공 색상
-    "loss_red":       "#f87171",   # 스킵 색상
-    "border":         "#475569",   # 뚜렷하고 고급스러운 경계선 (Slate 600)
-    "hover":          "#334155",   # 마우스 오버 시 색상
-    "pressed":        "#0f172a",   # 클릭 시 색상
-    "disabled":       "#475569",   # 비활성 테두리
-    "disabled_bg":    "#1e293b",   # 비활성 배경
+    # 배경
+    "bg_primary":     "#EFF3F8",   # 메인 배경 (연한 블루-그레이)
+    "bg_secondary":   "#FFFFFF",   # 카드/패널 배경 (흰색)
+    "bg_card":        "#F1F5F9",   # 테이블 헤더, 구분 영역 (Slate 100)
+    "bg_input":       "#F8FAFC",   # 입력창 배경 (Slate 50)
+    "bg_table":       "#FFFFFF",   # 테이블 기본 배경
+    "bg_table_alt":   "#F8FAFC",   # 테이블 줄무늬
+
+    # 텍스트
+    "text_primary":   "#1E293B",   # 기본 텍스트 (Slate 800 — 눈에 편안한 진한색)
+    "text_secondary": "#475569",   # 보조 텍스트 (Slate 600)
+    "text_bright":    "#0F172A",   # 강조 텍스트 (Slate 950)
+
+    # 포인트 컬러
+    "accent_blue":    "#2563EB",   # 메인 블루 (Blue 600)
+    "accent_green":   "#059669",   # 에메랄드 그린 (Emerald 600)
+
+    # 트레이딩 색상 (한국식: 수익=빨강, 손실=파랑)
+    "profit_red":     "#DC2626",   # 수익/상승 빨강 (Red 600)
+    "loss_blue":      "#2563EB",   # 손실/하락 파랑 (Blue 600)
+    "profit_green":   "#059669",   # 매수 성공 (Emerald 600)
+    "loss_red":       "#DC2626",   # 매도/손절
+
+    # 경고/위험
+    "warning_orange": "#D97706",   # 경고 주황 (Amber 600)
+    "danger_red":     "#DC2626",   # 에러/위험
+
+    # 테두리 & 상태
+    "border":         "#CBD5E1",   # 기본 경계선 (Slate 300)
+    "hover":          "#EFF6FF",   # 마우스 오버 (Blue 50)
+    "pressed":        "#DBEAFE",   # 클릭 (Blue 100)
+    "disabled":       "#CBD5E1",   # 비활성 테두리
+    "disabled_bg":    "#F1F5F9",   # 비활성 배경
 }
 
 
+# ── QSS ─────────────────────────────────────────────────────────────
 DARK_THEME_QSS = f"""
-/* ═══════════════════ 전역 ═══════════════════ */
+/* ════════════════ 전역 ════════════════ */
 QMainWindow, QWidget {{
     background-color: {COLORS['bg_primary']};
     color: {COLORS['text_primary']};
     font-family: 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
-    font-size: 13px; /* 가독성을 위해 기존 12px에서 13px로 증가 */
+    font-size: 13px;
 }}
 
-/* ═══════════════════ 그룹박스 ═══════════════════ */
+/* ════════════════ 그룹박스 (카드) ════════════════ */
 QGroupBox {{
     background-color: {COLORS['bg_secondary']};
     border: 1px solid {COLORS['border']};
-    border-radius: 8px;
-    margin-top: 16px;
-    padding: 18px 12px 12px 12px;
+    border-radius: 12px;
+    margin-top: 18px;
+    padding: 18px 14px 14px 14px;
     font-weight: bold;
-    font-size: 14px;
+    font-size: 13px;
     color: {COLORS['accent_blue']};
 }}
 QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 4px 14px;
-    background-color: {COLORS['bg_card']};
-    color: {COLORS['text_bright']};
-    border-radius: 6px;
-    margin-left: 10px;
+    padding: 4px 12px;
+    background-color: {COLORS['bg_secondary']};
+    color: {COLORS['accent_blue']};
+    border-radius: 8px;
+    margin-left: 12px;
+    font-size: 12px;
+    font-weight: bold;
 }}
 
-/* ═══════════════════ 레이블 ═══════════════════ */
+/* ════════════════ 레이블 ════════════════ */
 QLabel {{
     color: {COLORS['text_primary']};
     font-size: 13px;
     padding: 2px;
+    background-color: transparent;
 }}
 
-/* ═══════════════════ 입력 필드 ═══════════════════ */
+/* ════════════════ 입력 필드 ════════════════ */
 QLineEdit, QSpinBox, QDoubleSpinBox {{
     background-color: {COLORS['bg_input']};
     color: {COLORS['text_primary']};
     border: 1px solid {COLORS['border']};
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 6px 10px;
     font-size: 13px;
     selection-background-color: {COLORS['accent_blue']};
-    selection-color: {COLORS['bg_input']};
+    selection-color: #FFFFFF;
 }}
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {{
     border: 2px solid {COLORS['accent_blue']};
-    background-color: {COLORS['bg_secondary']};
+    background-color: #FFFFFF;
+}}
+QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover {{
+    border: 1px solid {COLORS['accent_blue']};
 }}
 
-/* ═══════════════════ 콤보박스 ═══════════════════ */
+/* ════════════════ 콤보박스 ════════════════ */
 QComboBox {{
     background-color: {COLORS['bg_input']};
     color: {COLORS['text_primary']};
     border: 1px solid {COLORS['border']};
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 6px 10px;
     font-size: 13px;
     min-width: 100px;
+}}
+QComboBox:hover {{
+    border: 1px solid {COLORS['accent_blue']};
 }}
 QComboBox::drop-down {{
     border: none;
     width: 24px;
 }}
 QComboBox QAbstractItemView {{
-    background-color: {COLORS['bg_secondary']};
+    background-color: #FFFFFF;
     color: {COLORS['text_primary']};
     selection-background-color: {COLORS['hover']};
+    selection-color: {COLORS['accent_blue']};
     border: 1px solid {COLORS['border']};
-    border-radius: 4px;
+    border-radius: 8px;
+    outline: none;
 }}
 
-/* ═══════════════════ 리스트 ═══════════════════ */
+/* ════════════════ 리스트 ════════════════ */
 QListWidget {{
     background-color: {COLORS['bg_input']};
     color: {COLORS['text_primary']};
     border: 1px solid {COLORS['border']};
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: 13px;
     padding: 4px;
+    outline: none;
 }}
 QListWidget::item {{
-    padding: 6px 8px;
-    border-radius: 4px;
+    padding: 7px 10px;
+    border-radius: 6px;
+}}
+QListWidget::item:hover {{
+    background-color: {COLORS['hover']};
 }}
 QListWidget::item:selected {{
     background-color: {COLORS['hover']};
@@ -124,25 +152,29 @@ QListWidget::item:selected {{
     font-weight: bold;
 }}
 
-/* 비활성화 상태 처리 */
-QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled, 
+/* 비활성화 상태 */
+QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled,
 QComboBox:disabled, QListWidget:disabled {{
     background-color: {COLORS['disabled_bg']};
     color: {COLORS['text_secondary']};
     border: 1px solid {COLORS['disabled']};
 }}
 
-/* ═══════════════════ 체크박스 ═══════════════════ */
+/* ════════════════ 체크박스 ════════════════ */
 QCheckBox {{
     color: {COLORS['text_primary']};
     spacing: 8px;
     font-size: 13px;
+    background-color: transparent;
 }}
 QCheckBox::indicator {{
     width: 18px; height: 18px;
-    border: 2px solid {COLORS['border']};
-    border-radius: 4px;
-    background-color: {COLORS['bg_input']};
+    border: 1.5px solid {COLORS['border']};
+    border-radius: 5px;
+    background-color: #FFFFFF;
+}}
+QCheckBox::indicator:hover {{
+    border-color: {COLORS['accent_blue']};
 }}
 QCheckBox::indicator:checked {{
     background-color: {COLORS['accent_blue']};
@@ -156,191 +188,218 @@ QCheckBox::indicator:disabled {{
     border-color: {COLORS['disabled']};
 }}
 
-/* ═══════════════════ 버튼 ═══════════════════ */
+/* ════════════════ 버튼 (기본) ════════════════ */
 QPushButton {{
-    background-color: {COLORS['bg_card']};
-    color: {COLORS['text_bright']};
-    border: none;
-    border-radius: 6px;
+    background-color: #FFFFFF;
+    color: {COLORS['text_primary']};
+    border: 1px solid {COLORS['border']};
+    border-radius: 8px;
     padding: 8px 16px;
     font-size: 13px;
     font-weight: bold;
 }}
 QPushButton:hover {{
-    background-color: {COLORS['accent_blue']};
-    color: {COLORS['bg_primary']};
+    background-color: {COLORS['hover']};
+    border-color: {COLORS['accent_blue']};
+    color: {COLORS['accent_blue']};
 }}
 QPushButton:pressed {{
     background-color: {COLORS['pressed']};
+    border-color: {COLORS['accent_blue']};
 }}
 QPushButton:disabled {{
-    background-color: {COLORS['disabled']};
+    background-color: {COLORS['disabled_bg']};
     color: {COLORS['text_secondary']};
+    border-color: {COLORS['disabled']};
 }}
 
-/* 메인 시작 버튼 (모던 플랫 디자인) */
+/* 전략 가동 버튼 */
 QPushButton#btn_start {{
-    background-color: #2563eb; /* Blue 600 */
+    background-color: #2563EB;
     color: white;
-    font-size: 16px;
-    min-height: 50px;
-    border-radius: 8px;
+    border: none;
+    font-size: 15px;
+    min-height: 48px;
+    border-radius: 10px;
 }}
 QPushButton#btn_start:hover {{
-    background-color: #1d4ed8; /* Blue 700 */
+    background-color: #1D4ED8;
 }}
 QPushButton#btn_start[trading="true"] {{
-    background-color: #059669; /* Emerald 600 */
+    background-color: #059669;
+}}
+QPushButton#btn_start[trading="true"]:hover {{
+    background-color: #047857;
 }}
 
-/* 메인 종료 버튼 */
+/* 종료 버튼 */
 QPushButton#btn_exit {{
-    background-color: #3f3f46; /* Zinc 700 */
-    color: #fca5a5;
-    font-size: 16px;
-    min-height: 50px;
-    border-radius: 8px;
+    background-color: #F1F5F9;
+    color: {COLORS['text_secondary']};
+    border: 1px solid {COLORS['border']};
+    font-size: 15px;
+    min-height: 48px;
+    border-radius: 10px;
 }}
 QPushButton#btn_exit:hover {{
-    background-color: #dc2626; /* Red 600 */
-    color: white;
+    background-color: #FEE2E2;
+    border-color: #DC2626;
+    color: #DC2626;
 }}
 
+/* 접속 끊기 / 재연결 버튼 */
 QPushButton#btn_disconnect {{
-    background-color: #1e3a5f; /* 어두운 파랑 */
-    color: #93c5fd;
+    background-color: #EFF6FF;
+    color: {COLORS['accent_blue']};
+    border: 1.5px solid #BFDBFE;
     font-size: 15px;
-    min-height: 50px;
-    border-radius: 8px;
+    min-height: 48px;
+    border-radius: 10px;
 }}
 QPushButton#btn_disconnect:hover {{
-    background-color: #1d4ed8; /* Blue 700 */
-    color: white;
+    background-color: #DBEAFE;
+    border-color: {COLORS['accent_blue']};
 }}
 
 /* 수동매도 버튼 */
 QPushButton#btn_manual_sell {{
-    background-color: #4c1d95; /* Violet 900 */
-    color: #ddd6fe;
-    border-radius: 4px;
+    background-color: #FEF2F2;
+    color: #DC2626;
+    border: 1px solid #FECACA;
+    border-radius: 6px;
     padding: 4px 10px;
     font-size: 12px;
 }}
 QPushButton#btn_manual_sell:hover {{
-    background-color: #7c3aed; /* Violet 600 */
-    color: white;
+    background-color: #FEE2E2;
+    border-color: #DC2626;
 }}
 
-/* ═══════════════════ 테이블 ═══════════════════ */
+/* ════════════════ 테이블 ════════════════ */
 QTableWidget {{
     background-color: {COLORS['bg_table']};
-    alternate-background-color: {COLORS['bg_table_alt']}; 
+    alternate-background-color: {COLORS['bg_table_alt']};
     color: {COLORS['text_primary']};
     gridline-color: {COLORS['border']};
     border: 1px solid {COLORS['border']};
-    border-radius: 6px;
+    border-radius: 10px;
     font-size: 13px;
     selection-background-color: {COLORS['hover']};
+    selection-color: {COLORS['accent_blue']};
+    outline: none;
 }}
 QTableWidget::item {{
-    padding: 6px 8px;
+    padding: 7px 10px;
+    border-bottom: 1px solid #F1F5F9;
+}}
+QTableWidget::item:selected {{
+    background-color: {COLORS['hover']};
+    color: {COLORS['accent_blue']};
 }}
 QHeaderView::section {{
     background-color: {COLORS['bg_card']};
-    color: {COLORS['text_primary']};
+    color: {COLORS['text_secondary']};
     border: none;
     border-right: 1px solid {COLORS['border']};
     border-bottom: 1px solid {COLORS['border']};
-    padding: 8px;
+    padding: 8px 10px;
     font-weight: bold;
-    font-size: 12px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }}
 
-/* ═══════════════════ 로그 창 ═══════════════════ */
+/* ════════════════ 로그 창 ════════════════ */
 QTextEdit#log_window {{
     background-color: {COLORS['bg_input']};
-    color: {COLORS['accent_green']};
+    color: {COLORS['text_secondary']};
     font-family: 'Consolas', 'D2Coding', monospace;
     font-size: 12px;
     border: 1px solid {COLORS['border']};
-    border-radius: 6px;
+    border-radius: 10px;
     padding: 8px;
 }}
 
-/* ═══════════════════ 탭 위젯 ═══════════════════ */
+/* ════════════════ 탭 위젯 ════════════════ */
 QTabWidget::pane {{
     background-color: {COLORS['bg_secondary']};
     border: 1px solid {COLORS['border']};
-    border-radius: 6px;
+    border-radius: 10px;
     border-top-left-radius: 0px;
 }}
 QTabBar::tab {{
-    background-color: {COLORS['bg_primary']};
+    background-color: {COLORS['bg_card']};
     color: {COLORS['text_secondary']};
     border: 1px solid {COLORS['border']};
     border-bottom: none;
-    padding: 10px 20px;
+    padding: 9px 18px;
     margin-right: 2px;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
     font-weight: bold;
+    font-size: 13px;
+}}
+QTabBar::tab:hover {{
+    background-color: {COLORS['hover']};
+    color: {COLORS['accent_blue']};
 }}
 QTabBar::tab:selected {{
     background-color: {COLORS['bg_secondary']};
     color: {COLORS['accent_blue']};
+    border-bottom: 2px solid {COLORS['accent_blue']};
 }}
 
-/* ═══════════════════ 스크롤바 ═══════════════════ */
+/* ════════════════ 스크롤바 ════════════════ */
 QScrollBar:vertical {{
-    background-color: {COLORS['bg_primary']};
-    width: 12px;
+    background-color: transparent;
+    width: 8px;
     border: none;
+    margin: 2px;
 }}
 QScrollBar::handle:vertical {{
     background-color: {COLORS['border']};
-    border-radius: 6px;
-    min-height: 20px;
-    margin: 2px;
+    border-radius: 4px;
+    min-height: 24px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background-color: {COLORS['text_secondary']};
+    background-color: #94A3B8;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
 
 QScrollBar:horizontal {{
-    background-color: {COLORS['bg_primary']};
-    height: 12px;
+    background-color: transparent;
+    height: 8px;
     border: none;
+    margin: 2px;
 }}
 QScrollBar::handle:horizontal {{
     background-color: {COLORS['border']};
-    border-radius: 6px;
-    min-width: 20px;
-    margin: 2px;
+    border-radius: 4px;
+    min-width: 24px;
 }}
 QScrollBar::handle:horizontal:hover {{
-    background-color: {COLORS['text_secondary']};
+    background-color: #94A3B8;
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0px; }}
 
-/* ═══════════════════ 시스템 트레이 ═══════════════════ */
+/* ════════════════ 트레이 메뉴 ════════════════ */
 QMenu {{
-    background-color: {COLORS['bg_secondary']};
+    background-color: #FFFFFF;
     color: {COLORS['text_primary']};
     border: 1px solid {COLORS['border']};
-    border-radius: 4px;
+    border-radius: 8px;
     padding: 4px;
 }}
 QMenu::item {{
-    padding: 6px 20px;
-    border-radius: 4px;
+    padding: 7px 20px;
+    border-radius: 6px;
 }}
 QMenu::item:selected {{
     background-color: {COLORS['hover']};
     color: {COLORS['accent_blue']};
 }}
 
-/* 설정 섹션 구분선 */
+/* ════════════════ 섹션 레이블 ════════════════ */
 QFrame#section_divider {{
     background-color: {COLORS['border']};
     max-height: 1px;
@@ -348,28 +407,40 @@ QFrame#section_divider {{
 }}
 QLabel#section_header {{
     color: {COLORS['accent_blue']};
-    font-weight: bold; font-size: 12px;
-    padding: 2px 8px; border-left: 3px solid {COLORS['accent_blue']};
+    font-weight: bold;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-left: 3px solid {COLORS['accent_blue']};
+    background-color: transparent;
 }}
 QLabel#section_header_orange {{
     color: {COLORS['warning_orange']};
-    font-weight: bold; font-size: 12px;
-    padding: 2px 8px; border-left: 3px solid {COLORS['warning_orange']};
+    font-weight: bold;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-left: 3px solid {COLORS['warning_orange']};
+    background-color: transparent;
 }}
 QLabel#section_header_purple {{
-    color: #c084fc;
-    font-weight: bold; font-size: 12px;
-    padding: 2px 8px; border-left: 3px solid #c084fc;
+    color: #7C3AED;
+    font-weight: bold;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-left: 3px solid #7C3AED;
+    background-color: transparent;
 }}
 QLabel#setting_label {{
     color: {COLORS['text_secondary']};
-    font-size: 12px; padding: 0px 2px;
+    font-size: 12px;
+    padding: 0px 2px;
+    background-color: transparent;
 }}
 """
 
-# 동적 스타일 (수익/손실 색상)
+
+# ── 동적 스타일 (수익/손실 색상) ────────────────────────────────────
 def profit_color(value) -> str:
-    """수익은 산뜻한 빨강(한국식), 손실은 밝은 파랑, 0은 회색."""
+    """수익은 빨강(한국식), 손실은 파랑, 0은 회색."""
     try:
         val = float(value)
         if val > 0:
