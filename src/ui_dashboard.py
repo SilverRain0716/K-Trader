@@ -91,7 +91,13 @@ class TradingUI(QMainWindow):
         self._available_accounts = []  # 엔진에서 받은 전체 계좌 목록 (계좌변경 다이얼로그용)
 
         self.setWindowTitle(f"K-Trader v{__version__}")
-        self.setGeometry(150, 100, 1150, 950)
+        # 화면 크기에 맞게 창 위치/크기 자동 조정 (작업표시줄 제외 영역 기준)
+        _screen = QApplication.primaryScreen().availableGeometry()
+        _win_w = min(1150, _screen.width() - 40)
+        _win_h = min(900,  _screen.height() - 60)
+        _win_x = (_screen.width()  - _win_w) // 2
+        _win_y = max(20, (_screen.height() - _win_h) // 2)
+        self.setGeometry(_win_x, _win_y, _win_w, _win_h)
         self.setStyleSheet(DARK_THEME_QSS)
 
         self._setup_ui()
@@ -1147,30 +1153,29 @@ class TradingUI(QMainWindow):
 
         # ── 하단 버튼바 (구분선 + 여백 포함 프레임) ──────────────────
         btn_frame = QFrame()
-        btn_frame.setMinimumHeight(56)
-        btn_frame.setMaximumHeight(60)
+        btn_frame.setFixedHeight(54)
         btn_frame.setStyleSheet(
             f"QFrame {{ background-color: {COLORS['bg_card']};"
             f" border-top: 1px solid {COLORS['border']}; }}"
         )
         btn_layout = QHBoxLayout(btn_frame)
-        btn_layout.setContentsMargins(10, 6, 10, 6)
+        btn_layout.setContentsMargins(10, 5, 10, 5)
         btn_layout.setSpacing(8)
 
         self.btn_start = QPushButton("🚀 전략 가동 시작")
         self.btn_start.setObjectName("btn_start")
-        self.btn_start.setFixedHeight(40)
+        self.btn_start.setFixedHeight(38)
         self.btn_start.clicked.connect(self._start_trading)
 
         self.btn_disconnect = QPushButton("🔌 접속 끊기")
         self.btn_disconnect.setObjectName("btn_disconnect")
-        self.btn_disconnect.setFixedHeight(40)
+        self.btn_disconnect.setFixedHeight(38)
         self.btn_disconnect.setToolTip("키움 접속만 해제합니다 (UI는 유지). 재연결 버튼으로 다시 연결할 수 있습니다.")
         self.btn_disconnect.clicked.connect(self._disconnect_engine)
 
         self.btn_exit = QPushButton("❌ 안전 종료")
         self.btn_exit.setObjectName("btn_exit")
-        self.btn_exit.setFixedHeight(40)
+        self.btn_exit.setFixedHeight(38)
         self.btn_exit.clicked.connect(self._confirm_exit)
 
         btn_layout.addWidget(self.btn_start, stretch=5)
