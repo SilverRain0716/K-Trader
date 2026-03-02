@@ -1259,7 +1259,11 @@ class TradingUI(QMainWindow):
         self.ts_activation_spin.setValue(c.get("ts_activation", 4.0))
         self.ts_drop_spin.setValue(c.get("ts_drop", 0.75))
         self.timecut_cb.setChecked(c.get("timecut", True))
-        self.shutdown_cb.setCurrentText(c.get("shutdown_opt", "프로그램만 종료 (VPS용)"))
+        shutdown_val = c.get("shutdown_opt", "프로그램만 종료 (VPS)")
+        # 구버전 config 호환 처리
+        if shutdown_val == "프로그램만 종료 (VPS용)":
+            shutdown_val = "프로그램만 종료 (VPS)"
+        self.shutdown_cb.setCurrentText(shutdown_val)
         self.minimize_to_tray_cb.setChecked(c.get("minimize_to_tray", False))
 
         order_type = c.get("order_type", "03")
