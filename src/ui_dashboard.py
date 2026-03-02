@@ -229,10 +229,20 @@ class TradingUI(QMainWindow):
                 self.btn_start.style().polish(self.btn_start)
                 logger.info("[UI] 엔진 크래시 → is_trading_started 리셋, UI 잠금 해제")
 
+            # [Fix Maintenance] exit_code=1 은 -101/-106 점검 단절 신호.
+            # 이 경우 crash_count를 리셋하여 자동 재시작이 막히지 않도록 한다.
+            if exit_code == 1:
+                logger.info("[UI] exit_code=1 감지 → 키움 점검/단절로 판단, 재시작 카운터 리셋")
+                self._engine_crash_count = 0
+
             if self._engine_crash_count < self._max_engine_restarts:
                 self._engine_crash_count += 1
-                # 지수 백오프: 1회→10초, 2회→20초, 3회→40초, 4~→60초 (키움 점검 대응)
-                delay_secs = min(10 * (2 ** (self._engine_crash_count - 1)), 60)
+                # 점검 단절(exit=1)은 더 긴 대기 후 재시작 (키움 점검 종료 대기)
+                if exit_code == 1:
+                    delay_secs = 120  # 점검 중 → 2분 후 재시도
+                else:
+                    # 지수 백오프: 1회→10초, 2회→20초, 3회→40초, 4~→60초
+                    delay_secs = min(10 * (2 ** (self._engine_crash_count - 1)), 60)
                 self._send_log(
                     f"⚠️ 엔진 크래시 감지! {delay_secs}초 후 재시작 "
                     f"({self._engine_crash_count}/{self._max_engine_restarts})"
@@ -1502,7 +1512,10 @@ class TradingUI(QMainWindow):
         self._send_log("🔌 키움 접속 해제 중... (UI는 유지됩니다)")
         self.is_trading_started = False
         self._disconnecting = True  # health_check에서 크래시로 처리 방지 플래그
-        self._engine_crash_count = self._max_engine_restarts  # 자동 재시작 비활성화
+        # [Fix Maintenance] crash_count 를 최대치로 올리지 않음.
+        # 기존 코드는 자동 재시작을 막기 위해 최대치로 올렸으나,
+        # 이후 -101/-106 점검 단절이 오면 엔진이 exit(1)로 죽어도
+        # UI가 재시작을 거부하는 문제가 발생했음.
 
         # 엔진 프로세스를 직접 종료 (IPC가 끊겨도 안전)
         try:
