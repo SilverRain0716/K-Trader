@@ -1057,7 +1057,8 @@ class TradingEngine(QMainWindow):
             if curr_p > 0:
                 self.portfolio[code]['current_price'] = curr_p
                 self.portfolio[code]['last_price_ts'] = time.time()
-                if self.portfolio[code].get('status') == 'HOLDING' and curr_p > self.portfolio[code].get('high_price', 0):
+                # [Fix] SELL_REQ 상태 중에도 고점 갱신 허용 (TS 기준 고점 누락 방지)
+                if self.portfolio[code].get('status') in ('HOLDING', 'SELL_REQ') and curr_p > self.portfolio[code].get('high_price', 0):
                     self.portfolio[code]['high_price'] = curr_p
             return
 
@@ -1141,12 +1142,13 @@ class TradingEngine(QMainWindow):
                             self._execute_sell(code, reason, sellable)
                         return
 
-                    # ④ TS 발동: 잔여 전량 (t1 완료 후 TS가 먼저 올 수도 있음)
+                    # ④ TS 발동: t1 완료 여부와 무관하게 잔여 전량 매도
                     ts_use = self.config_mgr.get_condition_param(c_name, "ts_use")
-                    if ts_use and t1_done and not t2_done and high_yield >= ts_act:
+                    if ts_use and not t2_done and high_yield >= ts_act:
                         if (data['high_price'] - curr_p) / data['high_price'] * 100 >= ts_drop:
                             sellable = data['qty'] - pending
                             if sellable > 0:
+                                ss['t1_done'] = True   # 1차 미완료 상태에서 TS 발동 시 강제 완료 처리
                                 ss['t2_done'] = True
                                 data['sell_ordered'] = True
                                 data['_last_sell_reason'] = "📉 T.S 발동"
