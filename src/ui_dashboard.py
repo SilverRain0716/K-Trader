@@ -1579,11 +1579,34 @@ class TradingUI(QMainWindow):
         """장 마감 후 종료 옵션 실행 (메인 스레드에서 호출)."""
         opt = self.shutdown_cb.currentText()
         if "프로그램" in opt:
+            # [Fix] app.quit()은 closeEvent 호출을 보장하지 않아 IPC 스레드가 살아남아
+            # 프로세스가 종료되지 않고 ui.lock이 남는 버그 수정.
+            # 리소스를 명시적으로 정리 후 os._exit(0)으로 확실하게 종료.
             try:
-                app = QApplication.instance()
-                if app:
-                    app.quit()
-                    return
+                self.ipc_server.stop()
+                self.ipc_server.wait(2000)   # 최대 2초 대기
+            except Exception:
+                pass
+            if self.engine_proc:
+                try:
+                    self.engine_proc.terminate()
+                    self.engine_proc.wait(timeout=3)
+                except Exception:
+                    pass
+                self.engine_proc = None
+            try:
+                self.tray.hide()
+            except Exception:
+                pass
+            try:
+                self.db.close()
+            except Exception:
+                pass
+            # ui.lock 명시적 삭제 (os._exit은 atexit를 건너뛰므로 직접 삭제)
+            try:
+                lock_path = os.path.join(get_app_dir(), "data", "ui.lock")
+                if os.path.exists(lock_path):
+                    os.remove(lock_path)
             except Exception:
                 pass
             os._exit(0)
