@@ -67,10 +67,94 @@ class Database:
                     avg_hold_seconds REAL DEFAULT 0
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS condition_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT NOT NULL,
+                    time TEXT NOT NULL,
+                    stock_code TEXT,
+                    stock_name TEXT,
+                    cond_name TEXT,
+                    result TEXT,
+                    reason TEXT
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS blacklist_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT NOT NULL,
+                    time TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    stock_code TEXT,
+                    stock_name TEXT,
+                    reason TEXT
+                )
+            ''')
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_cond_log_date ON condition_log(date)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_bl_log_date ON blacklist_log(date)")
             logger.info("✅ [DB] 로깅 테이블 초기화 완료")
         except sqlite3.Error as e:
             logger.critical(f"❌ [DB] 테이블 생성 실패: {e}")
             raise
+
+    # ── 조건식 편입 로그 ──────────────────────────────
+    def log_condition_signal(self, code: str, name: str, cond_name: str, result: str, reason: str = ""):
+        """조건식 편입 신호를 DB에 영구 저장."""
+        try:
+            now = datetime.datetime.now()
+            self.conn.execute(
+                """INSERT INTO condition_log
+                   (date, time, stock_code, stock_name, cond_name, result, reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"),
+                 code, name, cond_name, result, reason)
+            )
+        except sqlite3.Error as e:
+            logger.error(f"❌ [DB] 조건식 로그 저장 실패: {e}")
+
+    def get_condition_log(self, date: str = None, limit: int = 500) -> list:
+        """조건식 편입 로그 조회."""
+        if date is None:
+            date = datetime.datetime.now().strftime("%Y-%m-%d")
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """SELECT time, stock_name, stock_code, cond_name, result, reason
+                   FROM condition_log WHERE date = ? ORDER BY rowid DESC LIMIT ?""",
+                (date, limit)
+            )
+            return cursor.fetchall()
+        except sqlite3.Error:
+            return []
+
+    # ── 블랙리스트 기록 ──────────────────────────────
+    def log_blacklist(self, action: str, code: str, name: str, reason: str = ""):
+        """블랙리스트 추가/제거 이력 저장."""
+        try:
+            now = datetime.datetime.now()
+            self.conn.execute(
+                """INSERT INTO blacklist_log
+                   (date, time, action, stock_code, stock_name, reason)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S"),
+                 action, code, name, reason)
+            )
+        except sqlite3.Error as e:
+            logger.error(f"❌ [DB] 블랙리스트 로그 저장 실패: {e}")
+
+    def get_blacklist_log(self, days: int = 30) -> list:
+        """블랙리스트 이력 조회."""
+        cutoff = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                """SELECT date, time, action, stock_code, stock_name, reason
+                   FROM blacklist_log WHERE date >= ? ORDER BY rowid DESC""",
+                (cutoff,)
+            )
+            return cursor.fetchall()
+        except sqlite3.Error:
+            return []
 
     # ── 매매 기록 ──────────────────────────────────
     def log_trade(self, trade_type, cond_name, name, code, price, qty, realized=0, commission=0, tax=0, order_type="시장가"):

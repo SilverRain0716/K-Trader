@@ -304,19 +304,24 @@ class TradingEngine(QMainWindow):
         return unrealized
 
     def _log_condition_signal(self, code: str, name: str, cond_name: str, result: str, reason: str = ""):
-        """조건식 편입 기록을 남깁니다 (UI 실시간 표시용)."""
+        """조건식 편입 기록을 남깁니다 (UI 실시간 표시 + DB 영구 저장)."""
         entry = {
             'time': time.strftime('%H:%M:%S'),
             'code': code,
             'name': name,
             'cond_name': cond_name,
-            'result': result,    # "매수주문" / "스킵"
-            'reason': reason,    # 스킵 사유 또는 주문 상세
+            'result': result,
+            'reason': reason,
         }
         self._condition_log.append(entry)
-        # 최근 200건만 유지
+        # 최근 200건만 유지 (UI 표시용)
         if len(self._condition_log) > 200:
             self._condition_log = self._condition_log[-200:]
+        # DB 영구 저장
+        try:
+            self.db.log_condition_signal(code, name, cond_name, result, reason)
+        except Exception as e:
+            logger.error(f"❌ [DB] 조건식 로그 저장 오류: {e}")
 
     def _get_account_mode_text(self) -> str:
         """현재 계좌 모드 텍스트 반환."""
@@ -642,17 +647,22 @@ class TradingEngine(QMainWindow):
                     name = code
                 self._bl_cache[code] = name
                 logger.info(f"🚫 [블랙리스트] 추가: {name}({code})")
+                self.db.log_blacklist("추가", code, name, "수동 추가")
                 self._save_bot_state()
 
         elif cmd == "REMOVE_BLACKLIST":
             code = args.strip()
+            name = self._bl_cache.get(code, code)
             self.blacklist.discard(code)
             self._bl_cache.pop(code, None)
             logger.info(f"✅ [블랙리스트] 제거: {code}")
+            self.db.log_blacklist("제거", code, name, "수동 제거")
             self._save_bot_state()
 
         elif cmd == "CLEAR_BLACKLIST":
             cnt = len(self.blacklist)
+            for c, n in list(self._bl_cache.items()):
+                self.db.log_blacklist("초기화", c, n, "전체 초기화")
             self.blacklist.clear()
             self._bl_cache.clear()
             logger.info(f"🗑️ [블랙리스트] 전체 초기화 ({cnt}종목)")
@@ -1373,6 +1383,9 @@ class TradingEngine(QMainWindow):
                     if not p.get('is_manual'):
                         self.blacklist.add(code)
                         self._bl_cache[code] = p.get('name', code)
+                        # DB에 자동 블랙리스트 추가 기록
+                        sell_reason = p.get('_last_sell_reason', '매도완료')
+                        self.db.log_blacklist("자동추가", code, p.get('name', code), sell_reason)
                     self.kiwoom.dynamicCall("SetRealRemove(QString, QString)", p.get('screen_no', "ALL"), code)
                     del self.portfolio[code]
                     self._bot_bought_codes.discard(code)
