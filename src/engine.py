@@ -1038,6 +1038,7 @@ class TradingEngine(QMainWindow):
                 if cfg.get("split_sell_enabled"):
                     ratio1     = cfg.get("split_sell_ratio1", 50)
                     offset     = cfg.get("split_sell_offset", 1.5)
+                    c_name     = info.get('cond_name', '')  # [Fix] c_name 미정의 버그 수정
                     profit_pct = self.config_mgr.get_condition_param(c_name, "profit") or 2.3
                     port_entry['split_sell'] = {
                         "initial_qty": total_qty,
