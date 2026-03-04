@@ -668,6 +668,58 @@ class TradingEngine(QMainWindow):
             logger.info(f"🗑️ [블랙리스트] 전체 초기화 ({cnt}종목)")
             self._save_bot_state()
 
+        elif cmd == "UPDATE_CONDITIONS":
+            # 가동 중 조건식 추가/제거
+            # args 형식: "idx1^name1;idx2^name2;..."  (현재 체크된 전체 목록)
+            try:
+                new_conds = {}
+                for cond in args.split(';'):
+                    if '^' in cond:
+                        idx, name = cond.split('^', 1)
+                        new_conds[name] = idx.strip()
+
+                current_names = set(self.active_conditions)
+                new_names = set(new_conds.keys())
+
+                # 제거된 조건식 → SendConditionStop + pending_buy 정리
+                for name in current_names - new_names:
+                    cond_obj = next((c for c in self.condition_list if c['name'] == name), None)
+                    if cond_obj:
+                        try:
+                            self.kiwoom.dynamicCall("SendConditionStop(QString, QString, int)",
+                                                   "0300", name, int(cond_obj['idx']))
+                        except Exception as e:
+                            logger.warning(f"⚠️ [조건식] SendConditionStop 실패: {name} — {e}")
+                    # 해당 조건식의 pending_buy 즉시 취소
+                    cancelled = [code for code, info in list(self._pending_buy.items())
+                                 if info.get('cond_name') == name]
+                    for code in cancelled:
+                        info = self._pending_buy.pop(code, None)
+                        if info:
+                            try:
+                                self.kiwoom.dynamicCall("SetRealRemove(QString, QString)",
+                                                       info['screen_no'], code)
+                            except Exception:
+                                pass
+                        self.locked_deposit = max(0, self.locked_deposit - info.get('locked_amount', 0) if info else self.locked_deposit)
+                        logger.info(f"🗑️ [조건식] {name} 제거 → {code} 매수대기 취소")
+                    self.active_conditions = [c for c in self.active_conditions if c != name]
+                    logger.info(f"🔴 [조건식] 감시 중단: {name}")
+
+                # 추가된 조건식 → SendCondition
+                for name in new_names - current_names:
+                    idx = new_conds[name]
+                    try:
+                        self.kiwoom.dynamicCall("SendCondition(QString, QString, int, int)",
+                                               self._next_real_screen(), name, int(idx), 1)
+                        self.active_conditions.append(name)
+                        logger.info(f"🟢 [조건식] 감시 추가: {name}")
+                    except Exception as e:
+                        logger.error(f"❌ [조건식] SendCondition 실패: {name} — {e}")
+
+            except Exception as e:
+                logger.error(f"❌ [UPDATE_CONDITIONS] 처리 오류: {e}")
+
         elif cmd == "LOOKUP_STOCK":
             code = args.strip()
             try:

@@ -330,7 +330,6 @@ class TradingUI(QMainWindow):
                 self.is_trading_started = False
                 self.auto_start_countdown = 30
                 self.btn_change_account.setEnabled(bool(self._available_accounts))
-                self.condition_list.setEnabled(True)
                 self.btn_start.setText("🚀 전략 가동 시작")
                 self.btn_start.setProperty("trading", "false")
                 self.btn_start.style().unpolish(self.btn_start)
@@ -878,7 +877,7 @@ class TradingUI(QMainWindow):
         self.condition_list = QListWidget()
         self.condition_list.setMinimumHeight(100)
         self.condition_list.setMaximumHeight(140)
-        self.condition_list.itemChanged.connect(self._mark_config_dirty)
+        self.condition_list.itemChanged.connect(self._on_condition_item_changed)
         s1.addWidget(self.condition_list, 0, 1, 3, 1)
 
         # 투자 (우측 row 0) — 전체 너비 사용
@@ -1285,6 +1284,30 @@ class TradingUI(QMainWindow):
         }
         self.config_mgr.save(config)
 
+    def _on_condition_item_changed(self, item):
+        """조건식 체크 변경 — 가동 중이면 엔진에 즉시 반영, 아니면 설정 변경 표시."""
+        if self.is_trading_started:
+            # 가동 중: 전체 체크 목록을 다시 수집해서 UPDATE_CONDITIONS 전송
+            selected = []
+            self.condition_list.blockSignals(True)
+            for i in range(self.condition_list.count()):
+                it = self.condition_list.item(i)
+                if it.checkState() == Qt.Checked:
+                    selected.append(f"{it.data(Qt.UserRole)}^{it.text()}")
+            self.condition_list.blockSignals(False)
+            if not selected:
+                # 최소 1개 강제 유지 — 방금 해제한 항목 복원
+                self.condition_list.blockSignals(True)
+                item.setCheckState(Qt.Checked)
+                self.condition_list.blockSignals(False)
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "경고", "최소 1개의 조건식이 활성화되어 있어야 합니다.")
+                return
+            self.ipc_server.send_command("UPDATE_CONDITIONS", ";".join(selected))
+            self._send_log(f"🔄 조건식 변경 적용: {len(selected)}개 감시 중")
+        else:
+            self._mark_config_dirty(item)
+
     def _mark_config_dirty(self, *args):
         # 사용자가 값을 바꿨지만 아직 엔진에 반영(적용)하지 않은 상태
         self._config_dirty = True
@@ -1507,9 +1530,8 @@ class TradingUI(QMainWindow):
             QMessageBox.warning(self, "경고", "최소 1개의 조건식을 선택해주세요.")
             return
 
-        # 매매 중 계좌변경/조건식 변경 차단
+        # 매매 중 계좌변경 차단 (조건식은 가동 중에도 변경 가능)
         self.btn_change_account.setEnabled(False)
-        self.condition_list.setEnabled(False)
         self.is_trading_started = True
 
         self.ipc_server.send_command("START_TRADING", ";".join(selected))
