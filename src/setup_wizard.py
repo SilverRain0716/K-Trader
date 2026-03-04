@@ -25,8 +25,18 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QPixmap
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.utils import get_app_dir
+# [Fix] src.utils 의존성 제거 — PyInstaller onefile 빌드를 위해 get_app_dir 인라인화
+def get_app_dir() -> str:
+    env_dir = os.environ.get("KTRADER_APP_DIR", "").strip()
+    if env_dir:
+        return env_dir
+    if sys.platform == "win32":
+        localappdata = os.environ.get(
+            "LOCALAPPDATA",
+            os.path.join(os.path.expanduser("~"), "AppData", "Local"),
+        )
+        return os.path.join(localappdata, "K-Trader")
+    return os.path.join(os.path.expanduser("~"), ".k-trader")
 
 # [Item 1] CONFIG_DIR 를 쓰기 가능한 앱 데이터 디렉토리로 통일
 CONFIG_DIR = os.path.join(get_app_dir(), "config")
