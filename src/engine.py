@@ -933,9 +933,17 @@ class TradingEngine(QMainWindow):
         elif rqname == "당일실현손익조회":
             self.broker_today_realized_profit = safe_int(self.kiwoom.dynamicCall(
                 "GetCommData(QString, QString, int, QString)", trcode, rqname, 0, "실현손익"))
-            # UI/디스코드/DB는 DB 기반(또는 엔진 누적) 실현손익을 기준으로 표준화
-            if (self.broker_today_realized_profit is not None) and (self.broker_today_realized_profit != self.today_realized_profit):
-                logger.warning(f"⚠️ [엔진] 당일 실현손익 불일치: 키움={self.broker_today_realized_profit:+,} / DB기준={self.today_realized_profit:+,}")
+            # [Fix] 키움 실제 손익과 DB 누적값 불일치 시 키움 값으로 보정
+            # 키움 opt10074가 실제 체결 기준이므로 더 신뢰도 높음
+            # 단, 차이가 10원 이하면 부동소수점 오차로 보고 무시
+            if self.broker_today_realized_profit is not None:
+                diff = abs(self.broker_today_realized_profit - self.today_realized_profit)
+                if diff > 10:
+                    logger.warning(
+                        f"⚠️ [엔진] 당일 실현손익 불일치: 키움={self.broker_today_realized_profit:+,} / "
+                        f"DB기준={self.today_realized_profit:+,} → 키움 값으로 보정"
+                    )
+                    self.today_realized_profit = self.broker_today_realized_profit
 
 
     def _reconcile_portfolio(self, hts_port):
