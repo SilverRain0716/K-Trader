@@ -519,6 +519,15 @@ class TradingEngine(QMainWindow):
                 shutdown_opt = self.config_mgr.get("shutdown_opt", "프로그램 종료 안함")
                 if shutdown_opt != "프로그램 종료 안함":
                     logger.info(f"🔴 [마감] shutdown_opt='{shutdown_opt}' → 엔진 종료 시작")
+                    # [Fix] 엔진 종료 전 UI에 EOD 신호 전송
+                    # sys.exit(0)이 PyInstaller+PyQt5 환경에서 비정상 exit code로
+                    # 전달되어 UI가 크래시로 오인하는 문제 방지
+                    try:
+                        self._eod_shutdown_signaled = True
+                        self.ipc_client.send_state({"eod_shutdown": True})
+                        time.sleep(0.5)  # UI가 신호 수신할 시간 확보
+                    except Exception:
+                        pass
                     self._execute_shutdown("장 마감 자동 종료")
         except Exception as e:
             logger.error(f"❌ [마감] EOD 감지 오류: {e}")

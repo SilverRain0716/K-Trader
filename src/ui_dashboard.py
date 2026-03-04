@@ -188,6 +188,7 @@ class TradingUI(QMainWindow):
         self.engine_status = "OFFLINE"
         self.is_trading_started = False
         self.engine_proc = None
+        self._engine_eod_shutdown = False  # 엔진이 EOD 정상 종료 신호를 보냈는지
         self._spawn_pending = False  # QTimer.singleShot 중복 예약 방지
         self._disconnecting = False  # 접속 끊기 중 플래그 (health_check 크래시 방지)
         self.default_conditions = self.config_mgr.get("default_conditions", ["나의급등주02"])
@@ -308,12 +309,14 @@ class TradingUI(QMainWindow):
                 self.engine_proc = None
                 return
 
-            if exit_code == 0 and self.engine_status != "OFFLINE":
-                # IPC 연결 후 정상 종료 (장 마감 자동 종료 등) → 재시작 안 함
+            # [Fix] EOD 신호를 받았거나 exit_code==0이면 정상 종료로 처리
+            # PyInstaller+PyQt5에서 sys.exit(0)이 0xC0000409 등 비정상 코드로 전달되는 버그 대응
+            if (exit_code == 0 or self._engine_eod_shutdown) and self.engine_status != "OFFLINE":
                 logger.info("🌙 [UI] 엔진이 정상적으로 종료되었습니다.")
                 self.status_label.setText("✅ 엔진 안전 종료 완료")
                 self.status_label.setStyleSheet(f"color: {COLORS['accent_blue']};")
                 self.engine_status = "OFFLINE"
+                self._engine_eod_shutdown = False
                 self._last_loaded_conditions = None
                 self.engine_proc = None
                 return
@@ -497,6 +500,13 @@ class TradingUI(QMainWindow):
 
 
     def _on_state_received(self, state: dict):
+        # [Fix] 엔진 EOD 정상 종료 신호 감지
+        # PyInstaller+PyQt5 환경에서 sys.exit(0)이 비정상 exit code로 전달되어
+        # UI가 크래시로 오인하는 문제 방지
+        if state.get("eod_shutdown"):
+            self._engine_eod_shutdown = True
+            logger.info("🌙 [UI] 엔진 EOD 정상 종료 신호 수신")
+            return
         new_status = state.get("status", "OFFLINE")
 
         # 엔진이 제공하는 장 상태 텍스트를 우선 사용 (UI 정확성 우선)
