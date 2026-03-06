@@ -472,8 +472,10 @@ class Notifier:
                 msg += f"  • {data['name']} | {data['qty']}주 | {yr:+.2f}% ({pnl:+,}원)\n"
 
         self.discord(msg)
-
-    def notify_loss_limit(self, current_loss: int, limit: int):
+        self.email(
+            subject=f"[K-Trader] 장 마감 리포트 {now.strftime('%Y-%m-%d')} | {realized_profit:+,}원",
+            content=msg.replace("**", "").replace("━━━━━━━━━━━━━━━━━━━", "-" * 30)
+        )
         """일일 손실 한도 초과 경고."""
         msg = (
             f"🚨 **[긴급] 일일 손실 한도 경고!**\n"
