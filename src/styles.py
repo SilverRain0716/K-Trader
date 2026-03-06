@@ -259,8 +259,10 @@ QPushButton#btn_manual_sell {{
     color: {COLORS['danger_red']};
     border: 1px solid rgba(255,107,107,0.25);
     border-radius: 5px;
-    padding: 3px 10px;
+    padding: 3px 6px;
     font-size: 12px;
+    min-width: 52px;
+    max-width: 80px;
 }}
 QPushButton#btn_manual_sell:hover {{
     background-color: rgba(255,107,107,0.2);
@@ -289,15 +291,14 @@ QTableWidget::item:selected {{
 }}
 QHeaderView::section {{
     background-color: {COLORS['bg_card']};
-    color: {COLORS['text_secondary']};
+    color: #b8cfe8;
     border: none;
     border-right: 1px solid {COLORS['border']};
-    border-bottom: 1px solid {COLORS['border']};
-    padding: 7px 10px;
+    border-bottom: 2px solid rgba(77,163,255,0.3);
+    padding: 8px 10px;
     font-weight: 700;
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.03em;
 }}
 
 QTextEdit#log_window {{
