@@ -1122,7 +1122,7 @@ class TradingUI(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 78)
         header.setSectionResizeMode(9, QHeaderView.Fixed)
-        self.table.setColumnWidth(9, 72)
+        self.table.setColumnWidth(9, 85)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         trade_layout.addWidget(self.table, stretch=1)
