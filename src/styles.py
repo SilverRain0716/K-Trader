@@ -259,8 +259,13 @@ QPushButton#btn_manual_sell {{
     color: {COLORS['danger_red']};
     border: 1px solid rgba(255,107,107,0.25);
     border-radius: 5px;
-    padding: 3px 6px;
+    padding: 2px 4px;
     font-size: 12px;
+    font-weight: 600;
+    min-width: 56px;
+    max-width: 70px;
+    min-height: 24px;
+    max-height: 30px;
 }}
 QPushButton#btn_manual_sell:hover {{
     background-color: rgba(255,107,107,0.2);
