@@ -178,6 +178,7 @@ class TradingUI(QMainWindow):
         # 설정 적용/변경 추적
         self._last_applied_config = copy.deepcopy(self.config_mgr.config)
         self._config_dirty = False
+        self._last_state = {}  # 엔진 최신 상태 캐시 (컨텍스트 메뉴 등 참조용)
 
         # 장 상태(시간 기반) UI 갱신/알림
         self._last_market_phase = self.calendar.get_market_phase()
@@ -500,6 +501,7 @@ class TradingUI(QMainWindow):
 
 
     def _on_state_received(self, state: dict):
+        self._last_state = state  # 컨텍스트 메뉴 등에서 현재 상태 참조용
         # [Fix] 엔진 EOD 정상 종료 신호 감지
         # PyInstaller+PyQt5 환경에서 sys.exit(0)이 비정상 exit code로 전달되어
         # UI가 크래시로 오인하는 문제 방지
@@ -696,6 +698,39 @@ class TradingUI(QMainWindow):
         total = len(cond_log)
         self.cond_count_label.setText(f"편입 {total}건 | 매수 {buy_count}건 | 스킵 {skip_count}건")
 
+    def _on_table_context_menu(self, pos):
+        """매매 테이블 우클릭 컨텍스트 메뉴."""
+        row = self.table.rowAt(pos.y())
+        if row < 0:
+            return
+        code_item = self.table.item(row, 0)
+        name_item = self.table.item(row, 1)
+        if not code_item:
+            return
+        code = code_item.text().strip()
+        name = name_item.text().strip() if name_item else code
+
+        # 현재 is_manual 상태 파악 (상태 컬럼 텍스트로 판단)
+        state = self._last_state.get('portfolio', {}).get(code, {})
+        is_manual = state.get('is_manual', True)
+
+        from PyQt5.QtWidgets import QMenu, QAction
+        menu = QMenu(self)
+        if is_manual:
+            action = QAction(f"🤖 봇 관리로 전환 ({name})", self)
+            action.triggered.connect(lambda: self._toggle_manual(code, name, to_manual=False))
+        else:
+            action = QAction(f"👤 수동 관리로 전환 ({name})", self)
+            action.triggered.connect(lambda: self._toggle_manual(code, name, to_manual=True))
+        menu.addAction(action)
+        menu.exec_(self.table.viewport().mapToGlobal(pos))
+
+    def _toggle_manual(self, code: str, name: str, to_manual: bool):
+        """봇 관리 ↔ 수동 관리 전환."""
+        label = "수동 관리" if to_manual else "봇 관리"
+        self.ipc_server.send_command("TOGGLE_MANUAL", code)
+        self._send_log(f"{'👤' if to_manual else '🤖'} {name}({code}) → {label}로 전환")
+
     def _clear_condition_log(self):
         """조건식 편입 로그 UI 초기화."""
         self.cond_table.setRowCount(0)
@@ -801,14 +836,14 @@ class TradingUI(QMainWindow):
 
             btn = QPushButton("매도")
             btn.setObjectName("btn_manual_sell")
+            btn.setStyleSheet(
+                "QPushButton { background-color: rgba(255,107,107,0.15); "
+                "color: #ff6b6b; border: 1px solid rgba(255,107,107,0.4); "
+                "border-radius: 4px; padding: 2px 4px; font-size: 12px; font-weight: 600; }"
+                "QPushButton:hover { background-color: rgba(255,107,107,0.3); }"
+            )
             btn.clicked.connect(lambda _, c=code: self.ipc_server.send_command("MANUAL_SELL", c))
-            container = QWidget()
-            container.setStyleSheet("background: transparent;")
-            container_layout = QHBoxLayout(container)
-            container_layout.setContentsMargins(4, 3, 4, 3)
-            container_layout.setAlignment(Qt.AlignCenter)
-            container_layout.addWidget(btn)
-            self.table.setCellWidget(row, 9, container)
+            self.table.setCellWidget(row, 9, btn)
 
     def _setup_ui(self):
         main_widget = QWidget()
@@ -1102,6 +1137,16 @@ class TradingUI(QMainWindow):
         self.minimize_to_tray_cb.stateChanged.connect(self._mark_config_dirty)
         s3.addWidget(self.minimize_to_tray_cb, 1, 4, 1, 2)
 
+        # Row 2: 수동 종목 봇 관리
+        self.manual_manage_cb = ToggleSwitch("🤖 수동 종목도 익절/손절 적용")
+        self.manual_manage_cb.setChecked(self.config_mgr.get("manual_manage_all", False))
+        self.manual_manage_cb.setToolTip(
+            "ON: 수동 매수 종목도 설정된 익절/손절/TS 조건 적용\n"
+            "OFF: 수동 매수 종목은 직접 관리 (기본값)"
+        )
+        self.manual_manage_cb.stateChanged.connect(self._mark_config_dirty)
+        s3.addWidget(self.manual_manage_cb, 2, 0, 1, 3)
+
         settings_vbox.addLayout(s3)
 
         # ── 적용 버튼 ──
@@ -1130,6 +1175,8 @@ class TradingUI(QMainWindow):
         self.table.setColumnWidth(9, 78)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         trade_layout.addWidget(self.table, stretch=1)
 
         trade_tab.setLayout(trade_layout)
@@ -1284,6 +1331,7 @@ class TradingUI(QMainWindow):
             "timecut": self.timecut_cb.isChecked(),
             "shutdown_opt": self.shutdown_cb.currentText(),
             "minimize_to_tray": self.minimize_to_tray_cb.isChecked(),
+            "manual_manage_all": self.manual_manage_cb.isChecked(),
             "default_conditions": self.default_conditions,
             "order_type": order_type_map.get(self.order_type_cb.currentText(), "03"),
             "condition_params": self.config_mgr.get("condition_params", {}),
@@ -1414,6 +1462,7 @@ class TradingUI(QMainWindow):
             shutdown_val = "프로그램만 종료 (VPS)"
         self.shutdown_cb.setCurrentText(shutdown_val)
         self.minimize_to_tray_cb.setChecked(c.get("minimize_to_tray", False))
+        self.manual_manage_cb.setChecked(c.get("manual_manage_all", False))
 
         order_type = c.get("order_type", "03")
         self.order_type_cb.setCurrentText("시장가 (03)" if order_type == "03" else "최유리지정가 (06)")
