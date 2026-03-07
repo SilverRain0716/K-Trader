@@ -11,6 +11,14 @@ import json
 import logging
 import datetime
 
+try:
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+
 logger = logging.getLogger("ktrader")
 
 
@@ -53,7 +61,9 @@ class Database:
                     realized_profit INTEGER DEFAULT 0,
                     commission INTEGER DEFAULT 0,
                     tax INTEGER DEFAULT 0,
-                    order_type TEXT DEFAULT '시장가'
+                    order_type TEXT DEFAULT '시장가',
+                    is_mock INTEGER DEFAULT 0,
+                    sell_reason TEXT DEFAULT ''
                 )
             ''')
             cursor.execute('''
@@ -92,6 +102,14 @@ class Database:
             ''')
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_cond_log_date ON condition_log(date)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_bl_log_date ON blacklist_log(date)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_trade_date ON trade_history(date)")
+
+            # 기존 DB 마이그레이션 — 컬럼 누락 시 추가
+            existing = [row[1] for row in cursor.execute("PRAGMA table_info(trade_history)").fetchall()]
+            for col, definition in [("is_mock", "INTEGER DEFAULT 0"), ("sell_reason", "TEXT DEFAULT ''")]:
+                if col not in existing:
+                    cursor.execute(f"ALTER TABLE trade_history ADD COLUMN {col} {definition}")
+                    logger.info(f"✅ [DB] trade_history.{col} 컬럼 추가 (마이그레이션)")
             logger.info("✅ [DB] 로깅 테이블 초기화 완료")
         except sqlite3.Error as e:
             logger.critical(f"❌ [DB] 테이블 생성 실패: {e}")
@@ -157,7 +175,7 @@ class Database:
             return []
 
     # ── 매매 기록 ──────────────────────────────────
-    def log_trade(self, trade_type, cond_name, name, code, price, qty, realized=0, commission=0, tax=0, order_type="시장가"):
+    def log_trade(self, trade_type, cond_name, name, code, price, qty, realized=0, commission=0, tax=0, order_type="시장가", is_mock=False, sell_reason=""):
         try:
             cursor = self.conn.cursor()
             now = datetime.datetime.now()
@@ -167,11 +185,12 @@ class Database:
             cursor.execute(
                 """INSERT INTO trade_history
                    (date, time, trade_type, condition_name, stock_name, stock_code,
-                   exec_price, exec_qty, realized_profit, commission, tax, order_type)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (today, t_str, trade_type, cond_name, name, code, price, qty, realized, commission, tax, order_type)
+                   exec_price, exec_qty, realized_profit, commission, tax, order_type, is_mock, sell_reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (today, t_str, trade_type, cond_name, name, code, price, qty, realized, commission, tax, order_type, int(is_mock), sell_reason)
             )
-            logger.info(f"📝 [DB] 거래 기록: {trade_type} {name}({code}) {qty}주 @{price:,} 손익={realized:+,}")
+            self.conn.commit()
+            logger.info(f"📝 [DB] 거래 기록: {trade_type} {name}({code}) {qty}주 @{price:,} 손익={realized:+,} 수수료={commission:,} 세금={tax:,}")
         except sqlite3.Error as e:
             logger.error(f"❌ [DB] 거래 기록 실패: {e}")
 
@@ -300,6 +319,111 @@ class Database:
             return []
 
     # ── 엔진 상태 공유 (웹 모니터용) ──────────────────────────
+    def export_to_excel(self, output_path: str, days: int = 90) -> bool:
+        """매매 기록을 엑셀 파일로 내보내기."""
+        if not EXCEL_AVAILABLE:
+            logger.error("❌ [DB] openpyxl 미설치 — pip install openpyxl")
+            return False
+        try:
+            cutoff = (datetime.datetime.now() - datetime.timedelta(days=days)).strftime("%Y-%m-%d")
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT date, time, trade_type, condition_name, stock_name, stock_code,
+                       exec_price, exec_qty, realized_profit, commission, tax, order_type,
+                       CASE WHEN is_mock=1 THEN '모의' ELSE '실계좌' END, sell_reason
+                FROM trade_history WHERE date >= ? ORDER BY date, time
+            """, (cutoff,))
+            rows = cursor.fetchall()
+
+            wb = openpyxl.Workbook()
+
+            # ── 시트 1: 전체 매매 기록 ──
+            ws = wb.active
+            ws.title = "매매기록"
+            headers = ["날짜", "시간", "매매구분", "조건식", "종목명", "종목코드",
+                       "체결가", "수량", "실현손익", "수수료", "세금", "주문유형", "계좌구분", "매도사유"]
+            header_fill = PatternFill("solid", fgColor="1E3A5F")
+            header_font = Font(bold=True, color="FFFFFF", size=11)
+            thin = Side(style="thin", color="CCCCCC")
+            border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+            for col_idx, h in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col_idx, value=h)
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = border
+
+            profit_font_pos = Font(color="FF4444", bold=True)
+            profit_font_neg = Font(color="4488FF", bold=True)
+            buy_fill = PatternFill("solid", fgColor="1A2A1A")
+            sell_fill = PatternFill("solid", fgColor="1A1A2A")
+
+            for r_idx, row in enumerate(rows, 2):
+                for c_idx, val in enumerate(row, 1):
+                    cell = ws.cell(row=r_idx, column=c_idx, value=val)
+                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.border = border
+                    # 숫자 컬럼 포맷
+                    if c_idx in (7, 9, 10, 11):  # 체결가, 실현손익, 수수료, 세금
+                        cell.number_format = "#,##0"
+                    # 실현손익 색상
+                    if c_idx == 9 and val:
+                        cell.font = profit_font_pos if val > 0 else (profit_font_neg if val < 0 else Font())
+                    # 행 배경
+                    if row[2] == "매수":
+                        cell.fill = buy_fill
+                    else:
+                        cell.fill = sell_fill
+
+            # 컬럼 너비 자동 조정
+            col_widths = [12, 10, 10, 18, 14, 10, 12, 8, 14, 12, 12, 12, 10, 16]
+            for i, w in enumerate(col_widths, 1):
+                ws.column_dimensions[get_column_letter(i)].width = w
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+
+            # ── 시트 2: 일별 손익 ──
+            ws2 = wb.create_sheet("일별손익")
+            ws2.append(["날짜", "실현손익", "매도건수", "누적손익"])
+            for cell in ws2[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center")
+            cumulative = 0
+            for date, pnl, cnt in self.get_daily_pnl(days=days):
+                cumulative += pnl
+                row_data = [date, pnl, cnt, cumulative]
+                ws2.append(row_data)
+                r = ws2.max_row
+                ws2.cell(r, 2).number_format = "#,##0"
+                ws2.cell(r, 4).number_format = "#,##0"
+                ws2.cell(r, 2).font = profit_font_pos if pnl > 0 else profit_font_neg
+            for col in ["A", "B", "C", "D"]:
+                ws2.column_dimensions[col].width = 14
+
+            # ── 시트 3: 조건식별 성과 ──
+            ws3 = wb.create_sheet("조건식성과")
+            ws3.append(["조건식", "매도건수", "승수", "총손익", "승률(%)"])
+            for cell in ws3[1]:
+                cell.fill = header_fill
+                cell.font = header_font
+                cell.alignment = Alignment(horizontal="center")
+            for cond_name, cnt, wins, total_pnl in self.get_condition_performance(days=days):
+                win_rate = round(wins / cnt * 100, 1) if cnt else 0
+                ws3.append([cond_name, cnt, wins, total_pnl, win_rate])
+                r = ws3.max_row
+                ws3.cell(r, 4).number_format = "#,##0"
+            for col, w in zip(["A", "B", "C", "D", "E"], [20, 12, 10, 14, 12]):
+                ws3.column_dimensions[col].width = w
+
+            wb.save(output_path)
+            logger.info(f"📊 [DB] 엑셀 내보내기 완료: {output_path} ({len(rows)}건)")
+            return True
+        except Exception as e:
+            logger.error(f"❌ [DB] 엑셀 내보내기 실패: {e}")
+            return False
+
     def write_engine_state(self, state: dict):
         """[개선 #4] 엔진 상태를 JSON 파일로 저장 (웹 모니터가 읽음). 원자적 쓰기."""
         tmp_path = self._state_file + ".tmp"

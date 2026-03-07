@@ -1263,6 +1263,9 @@ class TradingUI(QMainWindow):
         refresh_btn = QPushButton("🔄 통계 새로고침")
         refresh_btn.clicked.connect(self._update_statistics_tab)
         stats_btn_layout.addWidget(refresh_btn)
+        excel_btn = QPushButton("📥 엑셀 내보내기")
+        excel_btn.clicked.connect(self._export_excel)
+        stats_btn_layout.addWidget(excel_btn)
         stats_btn_layout.addStretch()
         stats_layout.addLayout(stats_btn_layout)
 
@@ -1517,6 +1520,21 @@ class TradingUI(QMainWindow):
             self.invest_spin.setSuffix("원")
             if self.invest_spin.value() <= 100:
                 self.invest_spin.setValue(1000000)
+
+    def _export_excel(self):
+        """매매 기록 엑셀 내보내기."""
+        from PyQt5.QtWidgets import QFileDialog, QMessageBox
+        import os
+        default_name = f"K-Trader_매매기록_{datetime.datetime.now().strftime('%Y%m%d')}.xlsx"
+        default_path = os.path.join(os.path.expanduser("~"), "Desktop", default_name)
+        path, _ = QFileDialog.getSaveFileName(self, "엑셀 파일 저장", default_path, "Excel Files (*.xlsx)")
+        if not path:
+            return
+        ok = self.db.export_to_excel(path, days=365)
+        if ok:
+            QMessageBox.information(self, "내보내기 완료", f"저장 완료:\n{path}")
+        else:
+            QMessageBox.warning(self, "내보내기 실패", "엑셀 저장에 실패했습니다.\nopenpyxl이 설치되어 있는지 확인하세요.")
 
     def _update_statistics_tab(self):
         try:

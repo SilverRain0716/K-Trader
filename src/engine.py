@@ -31,7 +31,7 @@ from src.database import Database
 from src.config_manager import ConfigManager, SecretManager
 from src.market_calendar import MarketCalendar
 from src.notifications import Notifier
-from src.utils import safe_int, calc_sell_cost, get_user_data_dir, get_app_dir, resolve_db_path, __version__
+from src.utils import safe_int, calc_sell_cost, get_user_data_dir, get_app_dir, resolve_db_path, __version__, COMMISSION_RATE, TAX_RATE, MOCK_FEE_RATE
 from src.ipc import Engine_IPCClient
 
 logger = logging.getLogger("ktrader")
@@ -1401,7 +1401,9 @@ class TradingEngine(QMainWindow):
                 self.deposit_total = max(0, (self.deposit_total if self.deposit_total > 0 else self.deposit) - cost)
                 self.withdrawable_amount = max(0, (self.withdrawable_amount if self.withdrawable_amount > 0 else self.deposit) - cost)
                 self.deposit = self.orderable_amount
-                self.db.log_trade("매수", p.get('cond_name', ''), p['name'], code, exec_price, exec_qty, 0)
+                self.db.log_trade("매수", p.get('cond_name', ''), p['name'], code, exec_price, exec_qty, 0,
+                    commission=int(exec_price * exec_qty * (MOCK_FEE_RATE if self.is_mock else COMMISSION_RATE)),
+                    tax=0, order_type=self.config_mgr.get("order_type", "03"), is_mock=self.is_mock)
                 p['status'] = 'HOLDING'
 
                 # [Fix] 분할매수 entry_price를 실제 체결가로 동기화
@@ -1467,7 +1469,13 @@ class TradingEngine(QMainWindow):
 
                 p['qty'] = max(0, p['qty'] - exec_qty)
                 self._pending_sell_qty[code] = max(0, self._pending_sell_qty.get(code, 0) - exec_qty)
-                self.db.log_trade("매도", p.get('cond_name', ''), p['name'], code, exec_price, exec_qty, realized)
+                buy_commission = int(p['buy_price'] * exec_qty * (MOCK_FEE_RATE if self.is_mock else COMMISSION_RATE))
+                sell_commission = int(exec_price * exec_qty * (MOCK_FEE_RATE if self.is_mock else COMMISSION_RATE))
+                tax = int(exec_price * exec_qty * (0 if self.is_mock else TAX_RATE))
+                self.db.log_trade("매도", p.get('cond_name', ''), p['name'], code, exec_price, exec_qty, realized,
+                    commission=buy_commission + sell_commission, tax=tax,
+                    order_type=self.config_mgr.get("order_type", "03"), is_mock=self.is_mock,
+                    sell_reason=p.get('_last_sell_reason', ''))
 
                 sell_reason = p.get('_last_sell_reason', '매도')
                 # [Fix #3] is_mock 전달
