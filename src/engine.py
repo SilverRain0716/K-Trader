@@ -751,6 +751,25 @@ class TradingEngine(QMainWindow):
                     data['_last_sell_reason'] = "⏰ 타임컷 일괄청산"
                     self._execute_sell(code, "⏰ 타임컷 일괄청산", data['qty'])
 
+        elif cmd == "TOGGLE_MANUAL":
+            code = args.strip()
+            if code in self.portfolio:
+                data = self.portfolio[code]
+                was_manual = data.get('is_manual', True)
+                data['is_manual'] = not was_manual
+                name = data.get('name', code)
+                if data['is_manual']:
+                    # 봇 관리 → 수동으로 전환
+                    self._bot_bought_codes.discard(code)
+                    logger.info(f"👤 [수동전환] {name}({code}) → 수동 관리 (익절/손절 해제)")
+                else:
+                    # 수동 → 봇 관리로 전환
+                    self._bot_bought_codes.add(code)
+                    # 고점 초기화 (현재가 기준으로 TS 추적 시작)
+                    data['high_price'] = max(data.get('buy_price', 0), data.get('current_price', 0))
+                    logger.info(f"🤖 [봇전환] {name}({code}) → 봇 관리 (익절/손절 활성)")
+                self._save_bot_state()
+
         elif cmd == "DISCONNECT":
             # 접속 끊기: 매매 중지 + 키움 연결 해제 (UI는 유지, 엔진 프로세스는 종료)
             # UI가 엔진을 재스폰하면 다시 연결됩니다.
@@ -1167,7 +1186,7 @@ class TradingEngine(QMainWindow):
             self.portfolio[code]['last_price_ts'] = time.time()
             data = self.portfolio[code]
 
-            if data['buy_price'] == 0 or data['qty'] <= 0 or data['status'] != 'HOLDING' or data.get('sell_ordered') or data.get('is_manual'):
+            if data['buy_price'] == 0 or data['qty'] <= 0 or data['status'] != 'HOLDING' or data.get('sell_ordered') or (data.get('is_manual') and not self.config_mgr.get("manual_manage_all", False)):
                 # [v7.5] 분할매수 확인 (HOLDING 상태 + buy_price 확정 후)
                 try:
                     if data.get('split_buy') and data['buy_price'] > 0 and data['status'] == 'HOLDING':
