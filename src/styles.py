@@ -255,10 +255,10 @@ QPushButton#btn_disconnect:hover {{
 }}
 
 QPushButton#btn_manual_sell {{
-    background-color: rgba(255,107,107,0.1);
+    background-color: rgba(255,107,107,0.15);
     color: {COLORS['danger_red']};
-    border: 1px solid rgba(255,107,107,0.25);
-    border-radius: 5px;
+    border: 1px solid rgba(255,107,107,0.4);
+    border-radius: 4px;
     padding: 2px 4px;
     font-size: 12px;
     font-weight: 600;
