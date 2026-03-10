@@ -655,9 +655,24 @@ class TradingEngine(QMainWindow):
             try:
                 new_cfg = json.loads(args) if args else {}
                 if isinstance(new_cfg, dict) and new_cfg:
+                    old_cfg = copy.deepcopy(self.config_mgr.config)
                     self.config_mgr.save(new_cfg)
                     self.config_mgr.config = new_cfg
-                    logger.info("✅ [엔진] 설정 적용 완료(APPLY_SETTINGS)")
+
+                    # [Fix v8.1] 변경된 키 로깅 (디버그용)
+                    changed = [k for k in new_cfg if old_cfg.get(k) != new_cfg.get(k)]
+                    if changed:
+                        logger.info(f"✅ [엔진] 설정 적용 완료(APPLY_SETTINGS): 변경={changed}")
+                    else:
+                        logger.info("✅ [엔진] 설정 적용 완료(APPLY_SETTINGS): 변경 없음")
+
+                    # [Fix v8.1] 분할매도 설정 변경 시 기존 포트 동기화
+                    # split_sell_enabled가 꺼졌으면 기존 포트의 split_sell dict 제거
+                    if not new_cfg.get("split_sell_enabled", False):
+                        for code, pdata in list(self.portfolio.items()):
+                            if pdata.get('split_sell'):
+                                del pdata['split_sell']
+                                logger.info(f"🔄 [설정] {pdata.get('name',code)} 분할매도 해제 (설정 변경)")
             except Exception as e:
                 logger.error(f"❌ [엔진] 설정 적용 실패(APPLY_SETTINGS): {e}")
 
@@ -1146,14 +1161,24 @@ class TradingEngine(QMainWindow):
 
     def _on_real_data(self, code, real_type, real_data):
         # [v8.0] 지수 실시간 수신 (KOSPI/KOSDAQ) — 종목 처리와 완전히 분리
+        # [Fix v8.1] real_type 조건 완화: "업종지수"뿐 아니라 "장시작시간" 등
+        # 다른 타입에서도 지수 코드가 올 수 있으므로, 코드 기반으로 먼저 분리
         if code in ("0001", "1001"):
-            logger.info(f"[지수수신] code={code} real_type='{real_type}'")
-        if code in ("0001", "1001") and "지수" in real_type:
             try:
                 price_raw = self.kiwoom.dynamicCall("GetCommRealData(QString, int)", code, 10)
                 rate_raw  = self.kiwoom.dynamicCall("GetCommRealData(QString, int)", code, 12)
-                price = abs(float(price_raw.replace(',', '').replace('+', '').strip() or 0))
-                rate  = float(rate_raw.replace(',', '').replace('+', '').strip() or 0)
+                if not price_raw.strip() or not rate_raw.strip():
+                    return  # 빈 데이터면 무시
+
+                # [Fix v8.1] 부호(±) 처리 개선: 키움은 "+2580.5" 또는 "-1.25" 형식
+                price_str = price_raw.replace(',', '').replace('+', '').replace(' ', '').strip()
+                rate_str = rate_raw.replace(',', '').replace(' ', '').strip()
+                # 부호 보존: rate_raw에 '-'가 있으면 음수
+                price = abs(float(price_str)) if price_str else 0
+                rate = float(rate_str) if rate_str else 0.0
+
+                if price <= 0:
+                    return  # 유효하지 않은 데이터
 
                 if code == "0001":
                     self.kospi_price = price
@@ -1335,14 +1360,11 @@ class TradingEngine(QMainWindow):
             ts_drop = self.config_mgr.get_condition_param(c_name, "ts_drop") or 0.75
 
             # [v7.7] 분할매도 처리 — TS 연계형
-            # 로직:
-            #   ① 손절(%):         전량 즉시 매도
-            #   ② 익절%:           1차 비중(ratio1%)만 매도
-            #   ③ 잔여 처리 분기:
-            #      - TS ON  → 고점 대비 drop% 하락 시 잔여 전량 매도 (TS가 잔여 포지션 보호)
-            #      - TS OFF → 익절%+offset% 도달 시 잔여 전량 매도 (고정가 폴백)
+            # [Fix v8.1] 가동 중 split_sell_enabled를 끈 경우, 기존 포트에 남아있는
+            # split_sell dict를 무시하고 전량매도 로직으로 fall-through합니다.
             ss = data.get('split_sell')
-            if ss:
+            split_sell_active = ss and bool(self.config_mgr.get("split_sell_enabled", False))
+            if split_sell_active:
                 try:
                     loss_pct   = self.config_mgr.get_condition_param(c_name, "loss") or -1.7
                     profit_pct = ss.get('profit_pct') or (self.config_mgr.get_condition_param(c_name, "profit") or 2.3)
@@ -1407,16 +1429,26 @@ class TradingEngine(QMainWindow):
                 return
 
             # 기존 전량매도 로직 (분할매도 비활성 시)
+            # [Fix v8.1] 매도 판정 우선순위: ① 손절 → ② TS 발동 → ③ 익절
+            # 기존 if/elif 체인에서 TS 조건(high_yield>=ts_act)이 True이면
+            # drop 미충족 시에도 elif 익절에 도달 못 하는 버그 수정.
             reason = ""
-            # [Fix Bug2] ts_use 명시적 bool 변환 (0/False/None → False, True/1 → True)
+            loss_pct = self.config_mgr.get_condition_param(c_name, "loss") or -1.7
+            profit_pct = self.config_mgr.get_condition_param(c_name, "profit") or 2.3
             ts_use_normal = bool(self.config_mgr.get_condition_param(c_name, "ts_use"))
-            if ts_use_normal and high_yield >= ts_act:
-                if (data['high_price'] - curr_p) / data['high_price'] * 100 >= ts_drop:
-                    reason = "📉 T.S 발동"
-            elif yield_rate >= (self.config_mgr.get_condition_param(c_name, "profit") or 2.3) and not is_manual_only:
-                reason = "🎯 익절"
-            elif yield_rate <= (self.config_mgr.get_condition_param(c_name, "loss") or -1.7):
+
+            # ① 손절: 최우선 (TS/익절보다 항상 먼저 판정)
+            if yield_rate <= loss_pct:
                 reason = "🛑 손절"
+            # ② TS: 활성 + 고점수익률이 ts_act 이상 + 고점 대비 drop% 하락
+            elif ts_use_normal and high_yield >= ts_act:
+                drop_from_high = (data['high_price'] - curr_p) / data['high_price'] * 100 if data['high_price'] > 0 else 0
+                if drop_from_high >= ts_drop:
+                    reason = "📉 T.S 발동"
+                # TS 활성 상태이지만 drop 미충족 → 매도 보류 (익절 라인 무시, TS가 보호)
+            # ③ 익절: TS 비활성일 때만 작동 (TS ON이면 ②에서 이미 판정)
+            elif not ts_use_normal and yield_rate >= profit_pct and not is_manual_only:
+                reason = "🎯 익절"
 
             if reason:
                 sellable = data['qty'] - self._pending_sell_qty.get(code, 0)
