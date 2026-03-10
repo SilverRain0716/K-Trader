@@ -19,7 +19,7 @@ from PyQt5.QtWidgets import (
     QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QLineEdit,
     QTextEdit, QTableWidget, QTableWidgetItem, QHeaderView,
     QListWidget, QListWidgetItem, QMessageBox, QSystemTrayIcon, QMenu, QAction,
-    QDialog
+    QDialog, QSizePolicy
 )
 from PyQt5.QtCore import QTimer, Qt, QRect, QPropertyAnimation, QEasingCurve, pyqtProperty, pyqtSignal
 from PyQt5.QtGui import QIcon, QColor, QFont, QBrush, QPainter, QPen
@@ -1068,18 +1068,24 @@ class TradingUI(QMainWindow):
 
                 self.table.setItem(row, col, item)
 
+            # [Fix] 매도 버튼을 컨테이너 위젯에 넣어 셀 중앙 정렬 + 셀 밖 삐져나옴 방지
             btn = QPushButton("매도")
             btn.setObjectName("btn_manual_sell")
             btn.setStyleSheet(
                 "QPushButton { background-color: rgba(255,107,107,0.15); "
                 "color: #ff6b6b; border: 1px solid rgba(255,107,107,0.4); "
-                "border-radius: 4px; padding: 1px 2px; font-size: 12px; font-weight: 600; "
-                "margin: 2px; }"
+                "border-radius: 3px; padding: 0px 3px; font-size: 11px; font-weight: 600; }"
                 "QPushButton:hover { background-color: rgba(255,107,107,0.3); }"
             )
-            btn.setFixedHeight(26)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             btn.clicked.connect(lambda _, c=code: self.ipc_server.send_command("MANUAL_SELL", c))
-            self.table.setCellWidget(row, 9, btn)
+            container = QWidget()
+            container.setStyleSheet("background: transparent;")
+            lay = QHBoxLayout(container)
+            lay.setContentsMargins(3, 3, 3, 3)
+            lay.setSpacing(0)
+            lay.addWidget(btn)
+            self.table.setCellWidget(row, 9, container)
 
     def _setup_ui(self):
         main_widget = QWidget()
@@ -1472,7 +1478,7 @@ class TradingUI(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 78)
         header.setSectionResizeMode(9, QHeaderView.Fixed)
-        self.table.setColumnWidth(9, 62)
+        self.table.setColumnWidth(9, 58)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
