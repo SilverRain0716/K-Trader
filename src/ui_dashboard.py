@@ -1073,9 +1073,11 @@ class TradingUI(QMainWindow):
             btn.setStyleSheet(
                 "QPushButton { background-color: rgba(255,107,107,0.15); "
                 "color: #ff6b6b; border: 1px solid rgba(255,107,107,0.4); "
-                "border-radius: 4px; padding: 2px 4px; font-size: 12px; font-weight: 600; }"
+                "border-radius: 4px; padding: 1px 2px; font-size: 12px; font-weight: 600; "
+                "margin: 2px; }"
                 "QPushButton:hover { background-color: rgba(255,107,107,0.3); }"
             )
+            btn.setFixedHeight(26)
             btn.clicked.connect(lambda _, c=code: self.ipc_server.send_command("MANUAL_SELL", c))
             self.table.setCellWidget(row, 9, btn)
 
@@ -1470,7 +1472,7 @@ class TradingUI(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 78)
         header.setSectionResizeMode(9, QHeaderView.Fixed)
-        self.table.setColumnWidth(9, 78)
+        self.table.setColumnWidth(9, 62)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
