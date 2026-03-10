@@ -1456,6 +1456,16 @@ class TradingEngine(QMainWindow):
 
     def _execute_sell(self, code, reason, qty):
         self.portfolio[code]['status'] = 'SELL_REQ'
+        p = self.portfolio[code]
+        curr_p   = p.get('current_price', 0)
+        buy_p    = p.get('buy_price', 0)
+        high_p   = p.get('high_price', 0)
+        pct      = (curr_p - buy_p) / buy_p * 100 if buy_p > 0 else 0.0
+        high_pct = (high_p - buy_p) / buy_p * 100 if buy_p > 0 else 0.0
+        logger.info(
+            f"📤 [매도주문] {p.get('name','')}({code}) {reason} | "
+            f"{qty}주 | 현재={curr_p:,} ({pct:+.2f}%) | 고점={high_p:,} ({high_pct:+.2f}%)"
+        )
         self.tr_scheduler.request_order(
             rqname="실시간매도", screen_no=self._next_tr_screen(), acc_no=self.account,
             order_type=2, code=code, qty=qty, price=0,
