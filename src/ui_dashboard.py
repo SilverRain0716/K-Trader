@@ -162,8 +162,178 @@ class ToggleSwitch(QWidget):
         p.end()
 
 
+class IndexChartWindow(QDialog):
+    """
+    [v8.0] KOSPI / KOSDAQ 지수 차트 팝업 창.
+    QPainter로 직접 라인차트를 렌더링합니다.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("📈 지수 차트 (당일)")
+        self.setMinimumSize(700, 420)
+        self.resize(780, 460)
+        self.setStyleSheet(f"background-color: {COLORS['bg_primary']}; color: {COLORS['text_primary']};")
+
+        self._kospi_hist  = []   # [(ts_str, price, rate), ...]
+        self._kosdaq_hist = []
+        self._kospi_now   = (0, 0.0)   # (price, rate)
+        self._kosdaq_now  = (0, 0.0)
+
+        layout = QVBoxLayout()
+        layout.setSpacing(4)
+        layout.setContentsMargins(10, 8, 10, 8)
+
+        # 상단: 현재값 요약
+        self._summary_label = QLabel("KOSPI --  |  KOSDAQ --")
+        self._summary_label.setStyleSheet(
+            f"font-size: 15px; font-weight: bold; color: {COLORS['text_bright']}; padding: 4px;"
+        )
+        layout.addWidget(self._summary_label)
+
+        # 차트 위젯
+        self._chart = _IndexChartWidget(self)
+        layout.addWidget(self._chart, stretch=1)
+
+        # 하단: 범례
+        kospi_color  = COLORS['profit_red']
+        kosdaq_color = COLORS['accent_blue']
+        legend = QLabel(
+            f"<span style='color:{kospi_color};'>━</span> KOSPI &nbsp;&nbsp;"
+            f"<span style='color:{kosdaq_color};'>━</span> KOSDAQ"
+        )
+        legend.setAlignment(Qt.AlignCenter)
+        legend.setStyleSheet("font-size: 12px; padding: 2px;")
+        layout.addWidget(legend)
+
+        self.setLayout(layout)
+
+    def update_data(self, kospi_hist, kosdaq_hist, kp, kr, kd_p, kd_r):
+        self._kospi_hist  = kospi_hist
+        self._kosdaq_hist = kosdaq_hist
+        self._kospi_now   = (kp, kr)
+        self._kosdaq_now  = (kd_p, kd_r)
+
+        def _arrow(r): return "▲" if r >= 0 else "▼"
+        def _col(r):   return COLORS['profit_red'] if r >= 0 else COLORS['loss_blue']
+
+        kp_txt  = f"<span style='color:{_col(kr)};'>KOSPI {kp:,.2f} {_arrow(kr)}{abs(kr):.2f}%</span>"
+        kd_txt  = f"<span style='color:{_col(kd_r)};'>KOSDAQ {kd_p:,.2f} {_arrow(kd_r)}{abs(kd_r):.2f}%</span>"
+        self._summary_label.setText(f"{kp_txt} &nbsp;&nbsp;|&nbsp;&nbsp; {kd_txt}")
+
+        self._chart.set_data(kospi_hist, kosdaq_hist)
+        self._chart.update()
+
+
+class _IndexChartWidget(QWidget):
+    """QPainter 기반 지수 라인차트."""
+
+    PAD_L, PAD_R, PAD_T, PAD_B = 58, 16, 20, 32
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._kospi_hist  = []
+        self._kosdaq_hist = []
+
+    def set_data(self, kospi_hist, kosdaq_hist):
+        self._kospi_hist  = kospi_hist
+        self._kosdaq_hist = kosdaq_hist
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        pl, pr, pt, pb = self.PAD_L, self.PAD_R, self.PAD_T, self.PAD_B
+        cw = w - pl - pr   # 차트 폭
+        ch = h - pt - pb   # 차트 높이
+
+        # 배경
+        p.fillRect(0, 0, w, h, QColor(COLORS['bg_primary']))
+        p.fillRect(pl, pt, cw, ch, QColor(COLORS['bg_card']))
+
+        # 데이터 없으면 안내
+        if not self._kospi_hist and not self._kosdaq_hist:
+            p.setPen(QColor(COLORS['text_secondary']))
+            p.drawText(pl, pt, cw, ch, Qt.AlignCenter, "장 시작 후 데이터가 축적됩니다")
+            p.end()
+            return
+
+        # 전체 가격 범위 계산 (두 지수를 각각 정규화)
+        all_hist = [("kospi", self._kospi_hist, COLORS['profit_red']),
+                    ("kosdaq", self._kosdaq_hist, COLORS['accent_blue'])]
+
+        # 등락율 기준으로 Y축 통합
+        all_rates = ([r for _, r in [(x[1], x[2]) for h in [self._kospi_hist, self._kosdaq_hist] for x in h]]
+                     if False else [])
+        all_rates = [pt3 for hist in [self._kospi_hist, self._kosdaq_hist] for (_, _, pt3) in hist]
+        if not all_rates:
+            p.end()
+            return
+
+        y_min = min(all_rates) - 0.3
+        y_max = max(all_rates) + 0.3
+        if y_max - y_min < 0.5:
+            mid = (y_max + y_min) / 2
+            y_min, y_max = mid - 0.5, mid + 0.5
+        y_range = y_max - y_min
+
+        # 격자 및 0% 기준선
+        p.setPen(QPen(QColor(COLORS['border']), 1, Qt.DotLine))
+        for i in range(5):
+            gy = pt + int(ch * i / 4)
+            p.drawLine(pl, gy, pl + cw, gy)
+
+        # 0% 기준선 강조
+        if y_min < 0 < y_max:
+            zero_y = pt + int(ch * (y_max / y_range))
+            p.setPen(QPen(QColor(COLORS['border2']), 1, Qt.SolidLine))
+            p.drawLine(pl, zero_y, pl + cw, zero_y)
+
+        # Y축 레이블
+        p.setPen(QColor(COLORS['text_secondary']))
+        font = p.font(); font.setPointSize(9); p.setFont(font)
+        for i in range(5):
+            val = y_max - (y_range * i / 4)
+            ly  = pt + int(ch * i / 4)
+            p.drawText(0, ly - 8, pl - 4, 16, Qt.AlignRight | Qt.AlignVCenter, f"{val:+.1f}%")
+
+        # 라인 그리기 (등락율 기준)
+        colors_map = {"kospi": COLORS['profit_red'], "kosdaq": COLORS['accent_blue']}
+        data_map   = {"kospi": self._kospi_hist, "kosdaq": self._kosdaq_hist}
+
+        total_pts = max(len(self._kospi_hist), len(self._kosdaq_hist), 1)
+
+        for key, color in colors_map.items():
+            hist = data_map[key]
+            if len(hist) < 2:
+                continue
+            n = len(hist)
+            pen = QPen(QColor(color), 2, Qt.SolidLine)
+            pen.setCapStyle(Qt.RoundCap)
+            p.setPen(pen)
+            pts = []
+            for i, (_, _, rate) in enumerate(hist):
+                x = pl + int(cw * i / (total_pts - 1)) if total_pts > 1 else pl
+                y = pt + int(ch * (y_max - rate) / y_range)
+                pts.append((x, y))
+            for i in range(1, len(pts)):
+                p.drawLine(pts[i-1][0], pts[i-1][1], pts[i][0], pts[i][1])
+
+        # X축 레이블 (최대 6개)
+        all_ts = [ts for ts, _, _ in self._kospi_hist] or [ts for ts, _, _ in self._kosdaq_hist]
+        if all_ts:
+            step = max(1, len(all_ts) // 6)
+            p.setPen(QColor(COLORS['text_secondary']))
+            font.setPointSize(8); p.setFont(font)
+            for i in range(0, len(all_ts), step):
+                x = pl + int(cw * i / (total_pts - 1)) if total_pts > 1 else pl
+                p.drawText(x - 18, h - pb + 4, 36, pb - 4, Qt.AlignCenter, all_ts[i])
+
+        p.end()
+
+
 class TradingUI(QMainWindow):
-    """K-Trader v7.4 메인 UI 대시보드."""
+    """K-Trader v8.0 메인 UI 대시보드."""
 
     def __init__(self):
         super().__init__()
@@ -569,6 +739,12 @@ class TradingUI(QMainWindow):
         self.deposit_label.setText(f"💰 예수금(D+2): {dep_total:,}원")
         self.orderable_label.setText(f"💳 주문가능: {orderable:,}원")
 
+        # [v8.0] 지수 라벨 갱신
+        try:
+            self._update_index_labels(state)
+        except Exception:
+            pass
+
         # 동기화 경고 표시: 조회가 오래되었거나(예수금), 실시간 시세가 끊긴 종목이 있으면 색상으로 경고
         if deposit_stale:
             self.deposit_label.setStyleSheet(f"color: {COLORS['warning_orange']}; font-weight: bold;")
@@ -737,6 +913,64 @@ class TradingUI(QMainWindow):
         self._cond_log_count = 0
         self.cond_count_label.setText("편입 0건 | 매수 0건 | 스킵 0건")
 
+    # ── [v8.0] 지수 표시 ───────────────────────────────
+    def _update_index_labels(self, state: dict):
+        """지수 라벨 텍스트 및 색상 갱신."""
+        def _fmt(name, price, rate):
+            if price == 0:
+                return f"{name}  --"
+            arrow = "▲" if rate >= 0 else "▼"
+            return f"{name}  {price:,.2f}  {arrow}{abs(rate):.2f}%"
+
+        def _color(rate):
+            if rate > 0:
+                return COLORS['profit_red']     # 상승 → 빨강(한국식)
+            elif rate < 0:
+                return COLORS['loss_blue']      # 하락 → 파랑
+            return COLORS['text_secondary']
+
+        kp = state.get('kospi_price', 0)
+        kr = state.get('kospi_rate', 0.0)
+        kd_p = state.get('kosdaq_price', 0)
+        kd_r = state.get('kosdaq_rate', 0.0)
+
+        self.kospi_label.setText(_fmt("KOSPI", kp, kr))
+        self.kospi_label.setStyleSheet(
+            f"color: {_color(kr)}; padding: 2px 6px; "
+            "font-family: 'Consolas', monospace; font-size: 12px; font-weight: bold;"
+        )
+        self.kosdaq_label.setText(_fmt("KOSDAQ", kd_p, kd_r))
+        self.kosdaq_label.setStyleSheet(
+            f"color: {_color(kd_r)}; padding: 2px 6px; "
+            "font-family: 'Consolas', monospace; font-size: 12px; font-weight: bold;"
+        )
+
+        # 차트 창이 열려 있으면 데이터 갱신
+        if self._index_chart_win and self._index_chart_win.isVisible():
+            self._index_chart_win.update_data(
+                state.get('kospi_history', []),
+                state.get('kosdaq_history', []),
+                kp, kr, kd_p, kd_r,
+            )
+
+    def _toggle_index_chart(self):
+        """지수 차트 창 열기/닫기."""
+        if self._index_chart_win and self._index_chart_win.isVisible():
+            self._index_chart_win.hide()
+            return
+        if self._index_chart_win is None:
+            self._index_chart_win = IndexChartWindow(self)
+        # 마지막 수신 데이터로 초기 표시
+        s = self._last_state
+        self._index_chart_win.update_data(
+            s.get('kospi_history', []),
+            s.get('kosdaq_history', []),
+            s.get('kospi_price', 0), s.get('kospi_rate', 0.0),
+            s.get('kosdaq_price', 0), s.get('kosdaq_rate', 0.0),
+        )
+        self._index_chart_win.show()
+        self._index_chart_win.raise_()
+
     # ── [v7.5] 블랙리스트 관리 ──
     def _on_blacklist_toggle(self, state):
         cfg = self.config_mgr.config
@@ -878,6 +1112,28 @@ class TradingUI(QMainWindow):
         self.pnl_label = QLabel("📊 실현손익: 0원")
         self.pnl_label.setStyleSheet(f"padding: 4px 8px; font-weight: bold; font-size: 15px;")
 
+        # [v8.0] 지수 표시 라벨 + 차트 버튼
+        self.kospi_label = QLabel("KOSPI  --")
+        self.kospi_label.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; padding: 2px 6px; "
+            "font-family: 'Consolas', monospace; font-size: 12px;"
+        )
+        self.kosdaq_label = QLabel("KOSDAQ  --")
+        self.kosdaq_label.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; padding: 2px 6px; "
+            "font-family: 'Consolas', monospace; font-size: 12px;"
+        )
+        self.btn_index_chart = QPushButton("📈")
+        self.btn_index_chart.setFixedSize(28, 28)
+        self.btn_index_chart.setToolTip("지수 차트 열기")
+        self.btn_index_chart.setStyleSheet(
+            f"QPushButton {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['border2']}; "
+            f"border-radius: 5px; color: {COLORS['accent_blue']}; font-size: 14px; }}"
+            f"QPushButton:hover {{ background: {COLORS['hover']}; }}"
+        )
+        self._index_chart_win = None   # 차트 창 참조 보관
+        self.btn_index_chart.clicked.connect(self._toggle_index_chart)
+
         status_bar.addWidget(QLabel("💳"))
         status_bar.addWidget(self.account_label)
         status_bar.addWidget(self.btn_change_account)
@@ -889,6 +1145,14 @@ class TradingUI(QMainWindow):
         status_bar.addWidget(self.btn_discord_diag)
 
         status_bar.addWidget(self.status_label, stretch=1)
+
+        # [v8.0] 지수 표시 영역
+        sep_idx = QLabel("|"); sep_idx.setStyleSheet(f"color: {COLORS['border']};")
+        status_bar.addWidget(sep_idx)
+        status_bar.addWidget(self.kospi_label)
+        status_bar.addWidget(self.kosdaq_label)
+        status_bar.addWidget(self.btn_index_chart)
+
         sep1 = QLabel("|"); sep1.setStyleSheet(f"color: {COLORS['border']};")
         sep2 = QLabel("|"); sep2.setStyleSheet(f"color: {COLORS['border']};")
         status_bar.addWidget(self.deposit_label)
@@ -1147,6 +1411,40 @@ class TradingUI(QMainWindow):
         self.manual_manage_cb.stateChanged.connect(self._mark_config_dirty)
         s3.addWidget(self.manual_manage_cb, 2, 0, 1, 3)
 
+        # [v8.0] Row 3: 지수 필터
+        div_idx = QFrame(); div_idx.setObjectName("section_divider"); div_idx.setFrameShape(QFrame.HLine)
+        s3.addWidget(div_idx, 3, 0, 1, 6)
+
+        self.index_filter_cb = ToggleSwitch("🛡️ 지수 필터")
+        self.index_filter_cb.setToolTip(
+            "ON: KOSPI/KOSDAQ 지수 등락율이 설정 임계값 미만이면 매수 차단\n"
+            "OFF: 지수 조건 무관하게 조건식 신호 그대로 처리"
+        )
+        self.index_filter_cb.stateChanged.connect(self._mark_config_dirty)
+        s3.addWidget(self.index_filter_cb, 4, 0)
+
+        lbl_thr = QLabel("임계값"); lbl_thr.setObjectName("setting_label")
+        s3.addWidget(lbl_thr, 4, 1)
+        self.index_threshold_spin = QDoubleSpinBox()
+        self.index_threshold_spin.setRange(-30.0, 0.0)
+        self.index_threshold_spin.setSingleStep(0.5)
+        self.index_threshold_spin.setSuffix("%")
+        self.index_threshold_spin.setValue(-2.0)
+        self.index_threshold_spin.setToolTip("이 값 이상일 때만 매수 허용 (예: -2.0% → 지수가 -2% 이상이어야 매수)")
+        self.index_threshold_spin.valueChanged.connect(self._mark_config_dirty)
+        s3.addWidget(self.index_threshold_spin, 4, 2)
+
+        lbl_tgt = QLabel("대상"); lbl_tgt.setObjectName("setting_label")
+        s3.addWidget(lbl_tgt, 4, 3)
+        self.index_target_cb = QComboBox()
+        self.index_target_cb.addItems(["둘 다(AND)", "둘 중 하나(OR)", "KOSPI만", "KOSDAQ만"])
+        self.index_target_cb.setToolTip(
+            "둘 다(AND): KOSPI와 KOSDAQ 모두 임계값 이상이어야 매수\n"
+            "둘 중 하나(OR): 하나만 임계값 이상이면 매수 허용"
+        )
+        self.index_target_cb.currentIndexChanged.connect(self._mark_config_dirty)
+        s3.addWidget(self.index_target_cb, 4, 4, 1, 2)
+
         settings_vbox.addLayout(s3)
 
         # ── 적용 버튼 ──
@@ -1347,6 +1645,13 @@ class TradingUI(QMainWindow):
             "split_sell_enabled": self.split_sell_cb.isChecked(),
             "split_sell_ratio1": self.split_sell_t1_ratio.value(),   # 1차 매도 비중(%)
             "split_sell_offset": round(self.split_sell_offset.value(), 1),  # 2차 트리거 = 익절%+offset%
+            # [v8.0] 지수 필터
+            "index_filter_enabled":   self.index_filter_cb.isChecked(),
+            "index_filter_threshold": round(self.index_threshold_spin.value(), 1),
+            "index_filter_target":    {
+                "둘 다(AND)": "both", "둘 중 하나(OR)": "either",
+                "KOSPI만": "kospi", "KOSDAQ만": "kosdaq"
+            }.get(self.index_target_cb.currentText(), "both"),
             # 계좌는 secrets.json의 target_account를 단일 진실의 원천으로 사용 (config 저장 불필요)
         }
         self.config_mgr.save(config)
@@ -1409,6 +1714,9 @@ class TradingUI(QMainWindow):
             "blacklist_enabled": "블랙리스트",
             "split_buy_enabled": "분할매수",
             "split_sell_enabled": "분할매도",
+            "index_filter_enabled": "지수필터",
+            "index_filter_threshold": "지수필터 임계값",
+            "index_filter_target": "지수필터 대상",
         }
         changed_lines = []
         for k, label in label_map.items():
@@ -1485,6 +1793,16 @@ class TradingUI(QMainWindow):
             c.get("split_sell_ratio1", c.get("split_sell_ratio", legacy_ratio))
         )
         self.split_sell_offset.setValue(c.get("split_sell_offset", 1.5))
+
+        # [v8.0] 지수 필터
+        self.index_filter_cb.setChecked(c.get("index_filter_enabled", False))
+        self.index_threshold_spin.setValue(c.get("index_filter_threshold", -2.0))
+        target_map = {"both": "둘 다(AND)", "either": "둘 중 하나(OR)",
+                      "kospi": "KOSPI만", "kosdaq": "KOSDAQ만"}
+        self.index_target_cb.setCurrentText(
+            target_map.get(c.get("index_filter_target", "both"), "둘 다(AND)")
+        )
+
         self._block_signals(False)
         self._update_split_sell_guide()
 
@@ -1495,7 +1813,8 @@ class TradingUI(QMainWindow):
                   self.timecut_cb, self.shutdown_cb, self.order_type_cb, self.minimize_to_tray_cb,
                   self.split_buy_cb, self.split_buy_rounds_spin, self.split_buy_ratio1,
                   self.split_buy_ratio2, self.split_buy_confirm,
-                  self.split_sell_cb, self.split_sell_t1_ratio, self.split_sell_offset]:
+                  self.split_sell_cb, self.split_sell_t1_ratio, self.split_sell_offset,
+                  self.index_filter_cb, self.index_threshold_spin, self.index_target_cb]:
             w.blockSignals(block)
 
     def _update_split_sell_guide(self):

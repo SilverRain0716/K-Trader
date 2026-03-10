@@ -225,6 +225,11 @@ DEFAULT_CONFIG = {
     "split_sell_enabled": False,
     "split_sell_ratio1": 50,    # 1차 매도 비중 (%)
     "split_sell_offset": 1.5,   # 2차 트리거 = 익절% + offset%
+
+    # [v8.0] 지수 필터 — KOSPI/KOSDAQ 등락율 기준 매수 차단
+    "index_filter_enabled": False,   # 지수 필터 활성화 여부
+    "index_filter_threshold": -2.0,  # 매수 허용 최소 등락율 (%) — 이 값 미만이면 매수 차단
+    "index_filter_target": "both",   # "kospi" / "kosdaq" / "both"(AND) / "either"(OR)
 }
 
 

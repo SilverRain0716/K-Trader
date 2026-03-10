@@ -1,5 +1,9 @@
 """
 K-Trader - 매매 엔진 (백엔드 프로세스)
+[v8.0 수정사항]
+  - Feature: KOSPI/KOSDAQ 지수 실시간 수신 및 IPC 상태 전달
+  - Feature: 지수 필터 — 설정 임계값 미만 시 조건식 매수 차단
+  - Feature: 지수 필터 대상 선택 (KOSPI / KOSDAQ / 둘 다(AND) / 둘 중 하나(OR))
 [v7.1 수정사항]
   - Fix #1: 실계좌 TR 조회 시 비밀번호/매체구분 누락 해결
   - Fix #2: 계좌 비밀번호를 인스턴스에 저장하여 후속 TR에서 재사용
@@ -178,6 +182,16 @@ class TradingEngine(QMainWindow):
         self.unexecuted_orders = {}
         self._order_exec_cum = {}  # 주문번호별 누적 체결수량 추적(부분체결 대응)
         self._pending_buy = {}
+
+        # [v8.0] 지수 실시간 데이터
+        self.kospi_rate = 0.0    # KOSPI 등락율(%)
+        self.kospi_price = 0     # KOSPI 현재 지수
+        self.kosdaq_rate = 0.0   # KOSDAQ 등락율(%)
+        self.kosdaq_price = 0    # KOSDAQ 현재 지수
+        # 지수 히스토리 (차트용, 당일 장중 1분봉 축적)
+        self._kospi_history = []   # [(timestamp, price, rate), ...]
+        self._kosdaq_history = []  # [(timestamp, price, rate), ...]
+        self._index_history_last_min = -1  # 마지막으로 히스토리에 기록한 분(minute)
         self._pending_sell_qty = {}
         self._condition_log = []  # 조건식 편입 기록 (UI 표시용, 최근 200건)
         self._bl_cache = {}       # {code: name} 블랙리스트 UI 표시용 캐시
@@ -469,6 +483,13 @@ class TradingEngine(QMainWindow):
             "blacklist": dict(getattr(self, "_bl_cache", {})),
             "blacklist_enabled": self.config_mgr.get("blacklist_enabled", True),
             "stock_lookup": getattr(self, "_stock_lookup", {}),
+            # [v8.0] 지수 실시간 데이터
+            "kospi_price":   self.kospi_price,
+            "kospi_rate":    self.kospi_rate,
+            "kosdaq_price":  self.kosdaq_price,
+            "kosdaq_rate":   self.kosdaq_rate,
+            "kospi_history":  list(self._kospi_history),
+            "kosdaq_history": list(self._kosdaq_history),
         }
         self.ipc_client.send_state(state)
         self.db.write_engine_state(state)
@@ -833,6 +854,17 @@ class TradingEngine(QMainWindow):
             self.current_status = "READY_MOCK" if self.is_mock else "READY_REAL"
             self.kiwoom.dynamicCall("GetConditionLoad()")
 
+            # [v8.0] 지수 실시간 등록 — 고정 화면번호 "0099" (종목 화면과 충돌 없음)
+            # 코드: "0001"=KOSPI, "1001"=KOSDAQ
+            try:
+                self.kiwoom.dynamicCall(
+                    "SetRealReg(QString, QString, QString, QString)",
+                    "0099", "0001;1001", "10;11;12", "0"
+                )
+                logger.info("✅ [v8.0] 지수 실시간 등록 완료 (KOSPI/KOSDAQ, 화면=0099)")
+            except Exception as e:
+                logger.error(f"❌ [v8.0] 지수 실시간 등록 실패: {e}")
+
             # [v7.5] 블랙리스트 캐시에서 종목명이 코드와 동일한 항목을 API로 보강
             try:
                 for code in list(self._bl_cache.keys()):
@@ -1009,6 +1041,33 @@ class TradingEngine(QMainWindow):
         self._save_bot_state()
 
     # ── 조건검색 및 실시간 ──────────────────────────
+    def _is_index_ok(self) -> bool:
+        """
+        [v8.0] 지수 필터 체크.
+        - index_filter_enabled=False 이면 항상 True (필터 비활성)
+        - kospi/kosdaq 데이터가 아직 수신되지 않은 경우(0.0) 통과 처리 (시장 전 안전 대응)
+        - target: "kospi" / "kosdaq" / "both"(AND) / "either"(OR)
+        """
+        cfg = self.config_mgr.config
+        if not cfg.get("index_filter_enabled", False):
+            return True
+
+        threshold = cfg.get("index_filter_threshold", -2.0)
+        target = cfg.get("index_filter_target", "both")
+
+        kospi_ok  = (self.kospi_rate  == 0.0) or (self.kospi_rate  >= threshold)
+        kosdaq_ok = (self.kosdaq_rate == 0.0) or (self.kosdaq_rate >= threshold)
+
+        if target == "kospi":
+            return kospi_ok
+        elif target == "kosdaq":
+            return kosdaq_ok
+        elif target == "either":   # OR: 둘 중 하나라도 통과
+            return kospi_ok or kosdaq_ok
+        else:                      # "both" (AND, 기본): 둘 다 통과
+            return kospi_ok and kosdaq_ok
+
+    # ── 조건검색 및 실시간 ──────────────────────────
     def _on_real_condition(self, code, event_type, cond_name, cond_idx):
         stock_name = self.kiwoom.dynamicCall("GetMasterCodeName(QString)", code) or code
 
@@ -1047,6 +1106,18 @@ class TradingEngine(QMainWindow):
             self._log_condition_signal(code, stock_name, cond_name, "스킵", reason)
             return
 
+        # [v8.0] 지수 필터
+        if not self._is_index_ok():
+            cfg = self.config_mgr.config
+            threshold = cfg.get("index_filter_threshold", -2.0)
+            reason = (
+                f"지수필터 차단 (KOSPI {self.kospi_rate:+.2f}% / "
+                f"KOSDAQ {self.kosdaq_rate:+.2f}% | 기준 {threshold:+.1f}%)"
+            )
+            logger.info(f"🚫 [조건식] {stock_name}({code}) 스킵: {reason}")
+            self._log_condition_signal(code, stock_name, cond_name, "스킵", reason)
+            return
+
         config = self.config_mgr.config
         holding_count = len([c for c, d in list(self.portfolio.items()) if d['qty'] > 0])  # [Fix #4]
         max_hold = config.get("max_hold", 5)
@@ -1063,6 +1134,39 @@ class TradingEngine(QMainWindow):
         self._log_condition_signal(code, stock_name, cond_name, "⏳ 대기", "체결가 수신 대기 중")
 
     def _on_real_data(self, code, real_type, real_data):
+        # [v8.0] 지수 실시간 수신 (KOSPI/KOSDAQ) — 종목 처리와 완전히 분리
+        if code in ("0001", "1001") and real_type == "주식지수":
+            try:
+                price_raw = self.kiwoom.dynamicCall("GetCommRealData(QString, int)", code, 10)
+                rate_raw  = self.kiwoom.dynamicCall("GetCommRealData(QString, int)", code, 12)
+                price = abs(float(price_raw.replace(',', '').replace('+', '').strip() or 0))
+                rate  = float(rate_raw.replace(',', '').replace('+', '').strip() or 0)
+
+                if code == "0001":
+                    self.kospi_price = price
+                    self.kospi_rate  = rate
+                else:
+                    self.kosdaq_price = price
+                    self.kosdaq_rate  = rate
+
+                # 1분봉 히스토리 축적 (차트용)
+                now = datetime.datetime.now()
+                cur_min = now.hour * 60 + now.minute
+                if cur_min != self._index_history_last_min:
+                    self._index_history_last_min = cur_min
+                    ts_str = now.strftime("%H:%M")
+                    if code == "0001":
+                        self._kospi_history.append((ts_str, price, rate))
+                        if len(self._kospi_history) > 400:   # 최대 400분치
+                            self._kospi_history = self._kospi_history[-400:]
+                    else:
+                        self._kosdaq_history.append((ts_str, price, rate))
+                        if len(self._kosdaq_history) > 400:
+                            self._kosdaq_history = self._kosdaq_history[-400:]
+            except Exception as e:
+                logger.debug(f"[v8.0] 지수 데이터 파싱 오류 ({code}): {e}")
+            return
+
         if code in self._pending_buy and real_type == "주식체결":
             curr_p = abs(safe_int(self.kiwoom.dynamicCall("GetCommRealData(QString, int)", code, 10)))
             if curr_p <= 0:
