@@ -1065,25 +1065,19 @@ class TradingUI(QMainWindow):
 
                 self.table.setItem(row, col, item)
 
-            # [Fix v8.1] 매도 버튼 — 셀 안에 확실히 수납되도록 고정 크기 + 마진
+            # [Fix v8.1] 매도 버튼 — 컨테이너 없이 직접 셀에 배치
             btn = QPushButton("매도")
             btn.setObjectName("btn_manual_sell")
-            btn.setFixedSize(52, 24)  # 버튼 크기 고정 (컬럼 72px - 마진 여유)
+            btn.setMaximumHeight(26)
             btn.setStyleSheet(
                 "QPushButton { background-color: rgba(255,107,107,0.15); "
                 "color: #ff6b6b; border: 1px solid rgba(255,107,107,0.4); "
-                "border-radius: 3px; padding: 0px; font-size: 11px; font-weight: 600; }"
+                "border-radius: 3px; padding: 1px 4px; font-size: 11px; font-weight: 600; "
+                "margin: 2px; }"
                 "QPushButton:hover { background-color: rgba(255,107,107,0.3); }"
             )
             btn.clicked.connect(lambda _, c=code: self.ipc_server.send_command("MANUAL_SELL", c))
-            container = QWidget()
-            container.setStyleSheet("background: transparent;")
-            lay = QHBoxLayout(container)
-            lay.setContentsMargins(2, 2, 2, 2)
-            lay.setSpacing(0)
-            lay.setAlignment(Qt.AlignCenter)
-            lay.addWidget(btn)
-            self.table.setCellWidget(row, 9, container)
+            self.table.setCellWidget(row, 9, btn)
 
     def _setup_ui(self):
         main_widget = QWidget()
@@ -1476,8 +1470,8 @@ class TradingUI(QMainWindow):
         header.setSectionResizeMode(0, QHeaderView.Fixed)
         self.table.setColumnWidth(0, 78)
         header.setSectionResizeMode(9, QHeaderView.Fixed)
-        self.table.setColumnWidth(9, 72)  # [Fix v8.1] 58→72: 매도 버튼이 셀 밖으로 안 넘치도록
-        self.table.verticalHeader().setDefaultSectionSize(32)  # [Fix v8.1] 행 높이 고정
+        self.table.setColumnWidth(9, 76)  # [Fix v8.1] 매도 버튼 수납 (76px)
+        self.table.verticalHeader().setDefaultSectionSize(34)  # [Fix v8.1] 행 높이 34px
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
