@@ -394,14 +394,34 @@ class TradingEngine(QMainWindow):
                 logger.error(f"❌ [sync] 조건식 재등록 오류: {e}")
 
             # [v8.0] 지수 실시간 재등록 (장 시작 시 세션 갱신으로 끊길 수 있어 매일 재등록)
+            # [Fix v8.1] 개별 화면번호로 등록
             try:
                 self.kiwoom.dynamicCall(
                     "SetRealReg(QString, QString, QString, QString)",
-                    "0099", "0001;1001", "10;11;12", "0"
+                    "0098", "0001", "10;11;12;20", "0"
+                )
+                self.kiwoom.dynamicCall(
+                    "SetRealReg(QString, QString, QString, QString)",
+                    "0099", "1001", "10;11;12;20", "0"
                 )
                 logger.info("✅ [v8.0] 지수 실시간 재등록 완료 (장 시작 시)")
             except Exception as e:
                 logger.error(f"❌ [v8.0] 지수 실시간 재등록 실패: {e}")
+
+            # [Fix v8.1] 장 시작 시 TR 폴백으로 즉시 지수값 갱신
+            try:
+                self.tr_scheduler.request_tr(
+                    rqname="지수조회_KOSPI", trcode="opt20001", next_str=0,
+                    screen_no=self._next_tr_screen(),
+                    inputs={"업종코드": "001"}
+                )
+                self.tr_scheduler.request_tr(
+                    rqname="지수조회_KOSDAQ", trcode="opt20001", next_str=0,
+                    screen_no=self._next_tr_screen(),
+                    inputs={"업종코드": "101"}
+                )
+            except Exception as e:
+                logger.error(f"❌ [v8.1] 장 시작 지수 TR 갱신 실패: {e}")
 
             # ③ 장 시작 시 예수금 즉시 갱신 (독립 try — 항상 실행)
             # [Fix D] 장 시작 시 예수금 즉시 갱신
@@ -472,6 +492,26 @@ class TradingEngine(QMainWindow):
                             logger.warning(f"🔄 [실시간] {d.get('name', c)}({c}) 시세 30초 미수신 → 구독 재등록")
                         except Exception as e:
                             logger.error(f"❌ [실시간] {c} 자동 복구 실패: {e}")
+
+        # [Fix v8.1] 장중 60초마다 지수 TR 폴백 갱신
+        # SetRealReg로 업종 실시간이 안 올 경우를 대비한 안전망
+        if market_phase in ("REGULAR", "PRE_MARKET"):
+            last_idx_ts = getattr(self, '_last_index_tr_ts', 0)
+            if now_ts - last_idx_ts > 60:
+                self._last_index_tr_ts = now_ts
+                try:
+                    self.tr_scheduler.request_tr(
+                        rqname="지수갱신_KOSPI", trcode="opt20001", next_str=0,
+                        screen_no=self._next_tr_screen(),
+                        inputs={"업종코드": "001"}
+                    )
+                    self.tr_scheduler.request_tr(
+                        rqname="지수갱신_KOSDAQ", trcode="opt20001", next_str=0,
+                        screen_no=self._next_tr_screen(),
+                        inputs={"업종코드": "101"}
+                    )
+                except Exception as e:
+                    logger.debug(f"[v8.1] 지수 TR 갱신 요청 오류: {e}")
 
         state = {
             "ts": now_ts,
@@ -880,16 +920,38 @@ class TradingEngine(QMainWindow):
             self.current_status = "READY_MOCK" if self.is_mock else "READY_REAL"
             self.kiwoom.dynamicCall("GetConditionLoad()")
 
-            # [v8.0] 지수 실시간 등록 — 고정 화면번호 "0099" (종목 화면과 충돌 없음)
+            # [v8.0] 지수 실시간 등록 — 각 코드를 별도 화면번호로 등록
+            # [Fix v8.1] 세미콜론 멀티등록 대신 개별 등록 (안정성 향상)
             # 코드: "0001"=KOSPI, "1001"=KOSDAQ
             try:
                 self.kiwoom.dynamicCall(
                     "SetRealReg(QString, QString, QString, QString)",
-                    "0099", "0001;1001", "10;11;12", "0"
+                    "0098", "0001", "10;11;12;20", "0"
                 )
-                logger.info("✅ [v8.0] 지수 실시간 등록 완료 (KOSPI/KOSDAQ, 화면=0099)")
+                self.kiwoom.dynamicCall(
+                    "SetRealReg(QString, QString, QString, QString)",
+                    "0099", "1001", "10;11;12;20", "0"
+                )
+                logger.info("✅ [v8.0] 지수 실시간 등록 완료 (KOSPI=0098, KOSDAQ=0099)")
             except Exception as e:
                 logger.error(f"❌ [v8.0] 지수 실시간 등록 실패: {e}")
+
+            # [Fix v8.1] 지수 TR 폴백: SetRealReg가 업종 코드에 이벤트를 발생시키지 않을 수 있으므로
+            # opt20001 (업종현재가요청) TR을 한 번 요청해서 초기 지수값을 확보합니다.
+            try:
+                self.tr_scheduler.request_tr(
+                    rqname="지수조회_KOSPI", trcode="opt20001", next_str=0,
+                    screen_no=self._next_tr_screen(),
+                    inputs={"업종코드": "001"}
+                )
+                self.tr_scheduler.request_tr(
+                    rqname="지수조회_KOSDAQ", trcode="opt20001", next_str=0,
+                    screen_no=self._next_tr_screen(),
+                    inputs={"업종코드": "101"}
+                )
+                logger.info("✅ [v8.1] 지수 TR 초기 조회 요청 완료 (KOSPI=001, KOSDAQ=101)")
+            except Exception as e:
+                logger.error(f"❌ [v8.1] 지수 TR 초기 조회 실패: {e}")
 
             # [v7.5] 블랙리스트 캐시에서 종목명이 코드와 동일한 항목을 API로 보강
             try:
@@ -1039,6 +1101,49 @@ class TradingEngine(QMainWindow):
                     )
                     self.today_realized_profit = self.broker_today_realized_profit
 
+        # [Fix v8.1] 지수 TR 응답 핸들러 (opt20001 업종현재가요청)
+        elif rqname in ("지수조회_KOSPI", "지수조회_KOSDAQ", "지수갱신_KOSPI", "지수갱신_KOSDAQ"):
+            try:
+                raw_price = self.kiwoom.dynamicCall(
+                    "GetCommData(QString, QString, int, QString)", trcode, rqname, 0, "현재가")
+                raw_rate = self.kiwoom.dynamicCall(
+                    "GetCommData(QString, QString, int, QString)", trcode, rqname, 0, "등락율")
+
+                price_str = raw_price.strip().replace(',', '').replace('+', '').replace(' ', '')
+                rate_str = raw_rate.strip().replace(',', '').replace(' ', '')
+
+                price = abs(float(price_str)) if price_str else 0
+                rate = float(rate_str) if rate_str else 0.0
+
+                if price > 0:
+                    is_kospi = "KOSPI" in rqname
+                    if is_kospi:
+                        self.kospi_price = price
+                        self.kospi_rate = rate
+                    else:
+                        self.kosdaq_price = price
+                        self.kosdaq_rate = rate
+
+                    # 히스토리 축적
+                    now = datetime.datetime.now()
+                    cur_min = now.hour * 60 + now.minute
+                    ts_str = now.strftime("%H:%M")
+                    if is_kospi and cur_min != self._kospi_history_last_min:
+                        self._kospi_history_last_min = cur_min
+                        self._kospi_history.append((ts_str, price, rate))
+                        if len(self._kospi_history) > 400:
+                            self._kospi_history = self._kospi_history[-400:]
+                    elif not is_kospi and cur_min != self._kosdaq_history_last_min:
+                        self._kosdaq_history_last_min = cur_min
+                        self._kosdaq_history.append((ts_str, price, rate))
+                        if len(self._kosdaq_history) > 400:
+                            self._kosdaq_history = self._kosdaq_history[-400:]
+
+                    label = "KOSPI" if is_kospi else "KOSDAQ"
+                    logger.info(f"📊 [지수TR] {label} = {price:,.2f} ({rate:+.2f}%)")
+            except Exception as e:
+                logger.error(f"❌ [지수TR] {rqname} 파싱 오류: {e}")
+
 
     def _reconcile_portfolio(self, hts_port):
         for code in list(self.portfolio.keys()):
@@ -1071,7 +1176,10 @@ class TradingEngine(QMainWindow):
         """
         [v8.0] 지수 필터 체크.
         - index_filter_enabled=False 이면 항상 True (필터 비활성)
-        - kospi/kosdaq 데이터가 아직 수신되지 않은 경우(0.0) 통과 처리 (시장 전 안전 대응)
+        - [Fix v8.1] 지수 데이터 미수신(price==0) 상태에서는:
+          * 장 시작 전(PRE_MARKET): 통과 (아직 데이터 없는 게 정상)
+          * 장중(REGULAR): 통과 (TR 폴백으로 데이터 확보 시도 중)
+          * 데이터 수신 후 rate==0.0 → 보합이므로 threshold 비교로 판정
         - target: "kospi" / "kosdaq" / "both"(AND) / "either"(OR)
         """
         cfg = self.config_mgr.config
@@ -1081,8 +1189,10 @@ class TradingEngine(QMainWindow):
         threshold = cfg.get("index_filter_threshold", -2.0)
         target = cfg.get("index_filter_target", "both")
 
-        kospi_ok  = (self.kospi_rate  == 0.0) or (self.kospi_rate  >= threshold)
-        kosdaq_ok = (self.kosdaq_rate == 0.0) or (self.kosdaq_rate >= threshold)
+        # 지수 데이터가 아직 수신 안 됨 (price가 0) → 통과 (TR 폴백이 곧 갱신할 것)
+        # 데이터가 수신되었으면 (price > 0) → rate 기준으로 판정
+        kospi_ok  = (self.kospi_price == 0) or (self.kospi_rate >= threshold)
+        kosdaq_ok = (self.kosdaq_price == 0) or (self.kosdaq_rate >= threshold)
 
         if target == "kospi":
             return kospi_ok
@@ -1161,9 +1271,13 @@ class TradingEngine(QMainWindow):
 
     def _on_real_data(self, code, real_type, real_data):
         # [v8.0] 지수 실시간 수신 (KOSPI/KOSDAQ) — 종목 처리와 완전히 분리
-        # [Fix v8.1] real_type 조건 완화: "업종지수"뿐 아니라 "장시작시간" 등
-        # 다른 타입에서도 지수 코드가 올 수 있으므로, 코드 기반으로 먼저 분리
+        # [Fix v8.1] real_type 조건 완화: 코드 기반으로 먼저 분리
         if code in ("0001", "1001"):
+            # 디버그: 처음 10회만 로깅 (real_type 확인용)
+            _cnt = getattr(self, '_idx_real_log_cnt', 0)
+            if _cnt < 10:
+                self._idx_real_log_cnt = _cnt + 1
+                logger.info(f"[지수실시간] code={code} real_type='{real_type}'")
             try:
                 price_raw = self.kiwoom.dynamicCall("GetCommRealData(QString, int)", code, 10)
                 rate_raw  = self.kiwoom.dynamicCall("GetCommRealData(QString, int)", code, 12)
